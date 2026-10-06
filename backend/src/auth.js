@@ -14,9 +14,30 @@ export const requireAuth = async (req,_res,next) => {
   const header=(req.get('authorization')||'').replace(/^Bearer\s+/i,'').trim();
   const token=header || req.cookies?.smartdj_access || req.cookies?.smartdj_refresh || '';
   if(!token) return next(new AppError(401,'No autorizado: falta el token'));
+  let payload;
   try {
-    const payload=jwt.verify(token, header ? config.accessSecret : config.refreshSecret);
-    if(await redis.get(`revoked:${payload.jti || token}`)) throw new AppError(401,'Sesión inválida');
-    req.user=payload; next();
-  } catch { next(new AppError(401,'No autorizado: token inválido o expirado')); }
+    payload=jwt.verify(token, header ? config.accessSecret : config.refreshSecret);
+  } catch {
+    return next(new AppError(401,'No autorizado: token inválido o expirado'));
+  }
+
+  let timeoutId;
+  try {
+    const timeout=new Promise((_,reject)=>{
+      timeoutId=setTimeout(()=>reject(new Error('Redis revocation check timed out')),500);
+      timeoutId.unref?.();
+    });
+    const revoked=await Promise.race([
+      redis.get(`revoked:${payload.jti || token}`),
+      timeout,
+    ]);
+    if(revoked) return next(new AppError(401,'Sesión inválida'));
+  } catch (err) {
+    console.error('Redis error in requireAuth:',err);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  req.user=payload;
+  next();
 };
