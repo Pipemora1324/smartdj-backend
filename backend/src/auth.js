@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import { config } from './config.js';
 import { redis } from './redis.js';
 import { AppError } from './errors.js';
-export const accessToken = user => jwt.sign({ sub:user.id, email:user.email, role:user.role }, config.accessSecret, { expiresIn:'15m' });
+export const accessToken = user => jwt.sign({ sub:user.id, email:user.email, role:user.role, jti:crypto.randomUUID() }, config.accessSecret, { expiresIn:'15m' });
 export const refreshToken = user => jwt.sign({ sub:user.id, jti:crypto.randomUUID() }, config.refreshSecret, { expiresIn:'7d' });
 // Cross-site (Vercel -> Render) exige SameSite=None + Secure. En local usamos lax.
 export const setRefreshCookie = (res, token) => res.cookie('smartdj_refresh', token, { httpOnly:true, secure:config.cookieSecure || config.production, sameSite:config.production ? 'none' : 'lax', partitioned:config.production, path:'/api/auth', maxAge:604800000 });
@@ -29,10 +29,17 @@ export const requireAuth = async (req,_res,next) => {
       timeoutId.unref?.();
     });
     const revoked=await Promise.race([
-      redis.get(`revoked:${payload.jti || token}`),
+      (async()=>{
+        const byId=await redis.get(`revoked:${payload.jti || token}`);
+        // Mantiene válidas las marcas antiguas que usaban el JWT completo.
+        return byId || (payload.jti ? await redis.get(`revoked:${token}`) : null);
+      })(),
       timeout,
     ]);
-    if(revoked) return next(new AppError(401,'Sesión inválida'));
+    if(revoked) {
+      console.error('Session rejected by Redis revocation check');
+      return next(new AppError(401,'Sesión inválida'));
+    }
   } catch (err) {
     console.error('Redis error in requireAuth:',err);
   } finally {
