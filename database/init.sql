@@ -7,3 +7,7 @@ CREATE TABLE songs (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), title VARCHAR
 CREATE TABLE song_requests (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), establishment_id UUID NOT NULL REFERENCES establishments(id) ON DELETE CASCADE, guest_name VARCHAR(60) NOT NULL, title VARCHAR(140) NOT NULL, artist VARCHAR(140) NOT NULL, genre VARCHAR(60) NOT NULL, bpm NUMERIC(6,2), musical_key VARCHAR(15), status request_status NOT NULL DEFAULT 'queued', ai_reason TEXT, bridge_sequence JSONB NOT NULL DEFAULT '[]', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), evaluated_at TIMESTAMPTZ);
 CREATE TABLE mix_history (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), establishment_id UUID NOT NULL REFERENCES establishments(id) ON DELETE CASCADE, song_id UUID REFERENCES songs(id), bpm NUMERIC(6,2), musical_key VARCHAR(15), played_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
 CREATE INDEX song_requests_venue_created_idx ON song_requests(establishment_id,created_at DESC);
+
+-- Tokens de recuperacion de contrasena (se guarda el hash, nunca el token en claro).
+CREATE TABLE password_resets (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE, token_hash TEXT UNIQUE NOT NULL, expires_at TIMESTAMPTZ NOT NULL, used_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
+CREATE INDEX password_resets_user_idx ON password_resets(user_id, created_at DESC);
