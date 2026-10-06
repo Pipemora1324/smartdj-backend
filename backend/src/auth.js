@@ -8,4 +8,15 @@ export const refreshToken = user => jwt.sign({ sub:user.id, jti:crypto.randomUUI
 // Cross-site (Vercel -> Render) exige SameSite=None + Secure. En local usamos lax.
 export const setRefreshCookie = (res, token) => res.cookie('smartdj_refresh', token, { httpOnly:true, secure:config.cookieSecure || config.production, sameSite:config.production ? 'none' : 'lax', path:'/api/auth', maxAge:604800000 });
 export const clearRefreshCookie = (res) => res.clearCookie('smartdj_refresh', { httpOnly:true, secure:config.cookieSecure || config.production, sameSite:config.production ? 'none' : 'lax', path:'/api/auth' });
-export const requireAuth = async (req,_res,next) => { try { const token=(req.get('authorization')||'').replace(/^Bearer\s+/i,''); if(!token) throw new AppError(401,'No autorizado'); const payload=jwt.verify(token,config.accessSecret); if(await redis.get(`revoked:${payload.jti || token}`)) throw new AppError(401,'Sesión inválida'); req.user=payload; next(); } catch { next(new AppError(401,'No autorizado')); } };
+// Acepta el token del header 'Authorization: Bearer <token>' o, si no viene,
+// de la cookie HttpOnly. El header tiene prioridad.
+export const requireAuth = async (req,_res,next) => {
+  const header=(req.get('authorization')||'').replace(/^Bearer\s+/i,'').trim();
+  const token=header || req.cookies?.smartdj_access || req.cookies?.smartdj_refresh || '';
+  if(!token) return next(new AppError(401,'No autorizado: falta el token'));
+  try {
+    const payload=jwt.verify(token, header ? config.accessSecret : config.refreshSecret);
+    if(await redis.get(`revoked:${payload.jti || token}`)) throw new AppError(401,'Sesión inválida');
+    req.user=payload; next();
+  } catch { next(new AppError(401,'No autorizado: token inválido o expirado')); }
+};
