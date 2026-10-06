@@ -1,9 +1,31 @@
 import 'dotenv/config';
 const required = ['DATABASE_URL','REDIS_URL','JWT_ACCESS_SECRET','JWT_REFRESH_SECRET','AI_SERVICE_URL'];
 for (const name of required) if (!process.env[name]) throw new Error(`Missing required environment variable: ${name}`);
+// Lista de origenes permitidos (separados por coma en CORS_ORIGIN).
+const origins = (process.env.CORS_ORIGIN || 'http://localhost:8080')
+  .split(',').map(s => s.trim()).filter(Boolean);
+
+// Origenes de los despliegues conocidos, siempre permitidos.
+const knownOrigins = [
+  'https://smart-dj-platform-frontend.vercel.app',
+  'http://localhost:8080',
+  'http://localhost:3000',
+  'http://localhost:5173',
+];
+
 export const config = {
   port: Number(process.env.PORT || 3000), dbUrl: process.env.DATABASE_URL, redisUrl: process.env.REDIS_URL,
   accessSecret: process.env.JWT_ACCESS_SECRET, refreshSecret: process.env.JWT_REFRESH_SECRET,
-  aiUrl: process.env.AI_SERVICE_URL, origin: process.env.CORS_ORIGIN || 'http://localhost:8080',
-  production: process.env.NODE_ENV === 'production', cookieSecure: process.env.COOKIE_SECURE === 'true'
+  aiUrl: process.env.AI_SERVICE_URL, origins: [...new Set([...origins, ...knownOrigins])],
+  production: process.env.NODE_ENV === 'production', cookieSecure: process.env.COOKIE_SECURE === 'true',
+  publicAppUrl: process.env.PUBLIC_APP_URL || 'https://smart-dj-platform-frontend.vercel.app',
+  smtp: {
+    host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587),
+    user: process.env.SMTP_USER, pass: process.env.SMTP_PASS,
+    from: process.env.MAIL_FROM || 'SmartDJ <no-reply@smartdj.app>',
+  },
 };
+
+// Verdadero si el origen de la peticion esta permitido.
+export const isAllowedOrigin = (origin) =>
+  !origin || config.origins.includes(origin) || /\.vercel\.app$/.test(origin);
