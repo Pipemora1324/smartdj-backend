@@ -1,6 +1,16 @@
 import 'dotenv/config';
 const required = ['DATABASE_URL','REDIS_URL','AI_SERVICE_URL'];
 for (const name of required) if (!process.env[name]) throw new Error(`Missing required environment variable: ${name}`);
+const redisUrl = (() => {
+  const value = process.env.REDIS_URL;
+  const parsed = new URL(value);
+  // Upstash habilita TLS. Corrige URLs copiadas como redis:// para que ioredis
+  // conecte de forma segura sin tener que exponer credenciales en el código.
+  if (parsed.hostname.endsWith('.upstash.io') && parsed.protocol === 'redis:') {
+    return value.replace(/^redis:\/\//i, 'rediss://');
+  }
+  return value;
+})();
 // Lista de origenes permitidos (separados por coma en CORS_ORIGIN).
 const origins = (process.env.CORS_ORIGIN || 'http://localhost:8080')
   .split(',').map(s => s.trim()).filter(Boolean);
@@ -14,7 +24,7 @@ const knownOrigins = [
 ];
 
 export const config = {
-  port: Number(process.env.PORT || 3000), dbUrl: process.env.DATABASE_URL, redisUrl: process.env.REDIS_URL,
+  port: Number(process.env.PORT || 3000), dbUrl: process.env.DATABASE_URL, redisUrl,
   // Fallbacks estables solo para desarrollo. En producción exigimos secretos
   // definidos por el operador para no firmar tokens con valores públicos.
   accessSecret: process.env.JWT_ACCESS_SECRET || (process.env.NODE_ENV === 'production' ? '' : 'smartdj-local-access-secret-change-before-deploy'),
