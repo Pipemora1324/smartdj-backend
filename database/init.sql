@@ -1,0 +1,9 @@
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE TYPE venue_kind AS ENUM ('restaurant','cafe','salsa_bar','nightclub','lounge','other');
+CREATE TYPE request_status AS ENUM ('queued','accepted','bridging','rejected','played');
+CREATE TABLE users (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), email VARCHAR(254) UNIQUE NOT NULL, password_hash TEXT NOT NULL, name VARCHAR(80) NOT NULL, role VARCHAR(20) NOT NULL DEFAULT 'owner', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
+CREATE TABLE establishments (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), owner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE, name VARCHAR(120) NOT NULL, kind venue_kind NOT NULL, ambience TEXT NOT NULL, public_code VARCHAR(12) UNIQUE NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
+CREATE TABLE songs (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), title VARCHAR(140) NOT NULL, artist VARCHAR(140) NOT NULL, genre VARCHAR(60) NOT NULL, bpm NUMERIC(6,2), musical_key VARCHAR(15), preview_url TEXT, source VARCHAR(40), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
+CREATE TABLE song_requests (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), establishment_id UUID NOT NULL REFERENCES establishments(id) ON DELETE CASCADE, guest_name VARCHAR(60) NOT NULL, title VARCHAR(140) NOT NULL, artist VARCHAR(140) NOT NULL, genre VARCHAR(60) NOT NULL, bpm NUMERIC(6,2), musical_key VARCHAR(15), status request_status NOT NULL DEFAULT 'queued', ai_reason TEXT, bridge_sequence JSONB NOT NULL DEFAULT '[]', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), evaluated_at TIMESTAMPTZ);
+CREATE TABLE mix_history (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), establishment_id UUID NOT NULL REFERENCES establishments(id) ON DELETE CASCADE, song_id UUID REFERENCES songs(id), bpm NUMERIC(6,2), musical_key VARCHAR(15), played_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
+CREATE INDEX song_requests_venue_created_idx ON song_requests(establishment_id,created_at DESC);
