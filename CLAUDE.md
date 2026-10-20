@@ -6,6 +6,7 @@ Plataforma para locales (cafeterías, restaurantes, bares). El dueño crea cuent
 - `ai/`: motor FastAPI de compatibilidad musical.
 - `database/`: `init.sql` y migraciones en `database/migrations/` (idempotentes).
 - Despliegue: backend y ai en Render, PostgreSQL en Supabase, Redis en Upstash. El frontend vive en el repo `smartdj-frontend` (Vercel).
+- **Autenticación: Supabase Auth.** Registro, códigos de 6 dígitos (SMTP de Gmail en el panel de Supabase), login y recuperación se hacen desde el frontend. La API solo valida el token con JWKS (`supabase-token.js`) y usa `requireSupabaseAuth` (`supabase-auth.js`), que vincula la cuenta con `users.auth_id`; `req.user.sub` es el `users.id` local. La auth propia de la Fase 1 (`codes.js`, `auth.js`, rutas de `routes/auth.js`) queda sin uso y responde 410: no volver a usarla. Guía en `SUPABASE_AUTH.md`.
 
 ## Reglas fijas
 
