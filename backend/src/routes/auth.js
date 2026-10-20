@@ -1,6 +1,10 @@
-import { Router } from 'express'; import argon2 from 'argon2'; import jwt from 'jsonwebtoken'; import crypto from 'crypto'; import { z } from 'zod';
+import { Router } from 'express'; import argon2 from 'argon2'; import jwt from 'jsonwebtoken'; import crypto from 'crypto'; import { z } from 'zod'; import { rateLimit } from 'express-rate-limit';
 import { query } from '../db.js'; import { AppError } from '../errors.js'; import { accessToken, refreshToken, setRefreshCookie, clearRefreshCookie, requireAuth } from '../auth.js'; import { config } from '../config.js'; import { sendPasswordResetEmail } from '../mailer.js';
 const router=Router();
+// Rate limit por IP: general para todo /api/auth y más estricto donde se prueban o envían códigos.
+const limitMessage={error:'Demasiadas solicitudes. Espera unos minutos e intenta de nuevo.'};
+router.use(rateLimit({windowMs:15*60*1000,limit:30,standardHeaders:'draft-7',legacyHeaders:false,message:limitMessage}));
+router.use(['/verify-email','/resend-code','/forgot-password','/reset-password'],rateLimit({windowMs:15*60*1000,limit:10,standardHeaders:'draft-7',legacyHeaders:false,message:limitMessage}));
 // Regex de email (formato estandar) + contrasena con minimo 8, una letra y un numero.
 const emailRegex=/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const emailSchema=z.string().trim().max(254).regex(emailRegex,'Correo electrónico inválido');
