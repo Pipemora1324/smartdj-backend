@@ -33,6 +33,7 @@ export const config = {
   aiUrl: process.env.AI_SERVICE_URL, origins: [...new Set([...origins, ...knownOrigins])],
   production: process.env.NODE_ENV === 'production', cookieSecure: process.env.COOKIE_SECURE === 'true',
   publicAppUrl: process.env.PUBLIC_APP_URL || 'https://smart-dj-platform-frontend.vercel.app',
+  resendApiKey: process.env.RESEND_API_KEY,
   smtp: {
     host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587),
     user: process.env.SMTP_USER, pass: process.env.SMTP_PASS,
