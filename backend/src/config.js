@@ -35,6 +35,9 @@ export const config = {
   publicAppUrl: process.env.PUBLIC_APP_URL || 'https://smart-dj-platform-frontend.vercel.app',
   resendApiKey: process.env.RESEND_API_KEY, authCodeSecret: process.env.AUTH_CODE_SECRET,
   supabaseUrl: process.env.SUPABASE_URL || '', supabaseJwksUrl: process.env.SUPABASE_JWKS_URL || '', supabaseJwtSecret: process.env.SUPABASE_JWT_SECRET || '',
+  // gRPC con el motor de IA: si AI_GRPC_URL (host:puerto) está vacío se usa HTTP con AI_SERVICE_URL.
+  aiGrpcUrl: process.env.AI_GRPC_URL || '', aiGrpcTls: process.env.AI_GRPC_TLS === 'true',
+  aiGrpcTimeoutMs: Number(process.env.AI_GRPC_TIMEOUT_MS || 10000),
   smtp: {
     host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587),
     user: process.env.SMTP_USER, pass: process.env.SMTP_PASS,
