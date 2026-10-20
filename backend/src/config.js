@@ -1,6 +1,7 @@
 import 'dotenv/config';
-const required = ['DATABASE_URL','REDIS_URL','AI_SERVICE_URL'];
+const required = ['DATABASE_URL','REDIS_URL','AI_SERVICE_URL','JWT_ACCESS_SECRET','JWT_REFRESH_SECRET'];
 for (const name of required) if (!process.env[name]) throw new Error(`Missing required environment variable: ${name}`);
+for (const name of ['JWT_ACCESS_SECRET','JWT_REFRESH_SECRET']) if (process.env[name].length < 32) throw new Error(`${name} must be at least 32 characters long`);
 const redisUrl = (() => {
   const value = process.env.REDIS_URL;
   const parsed = new URL(value);
@@ -27,8 +28,8 @@ export const config = {
   port: Number(process.env.PORT || 3000), dbUrl: process.env.DATABASE_URL, redisUrl,
   // Fallbacks estables solo para desarrollo. En producción exigimos secretos
   // definidos por el operador para no firmar tokens con valores públicos.
-  accessSecret: process.env.JWT_ACCESS_SECRET || (process.env.NODE_ENV === 'production' ? '' : 'smartdj-local-access-secret-change-before-deploy'),
-  refreshSecret: process.env.JWT_REFRESH_SECRET || (process.env.NODE_ENV === 'production' ? '' : 'smartdj-local-refresh-secret-change-before-deploy'),
+  accessSecret: process.env.JWT_ACCESS_SECRET,
+  refreshSecret: process.env.JWT_REFRESH_SECRET,
   aiUrl: process.env.AI_SERVICE_URL, origins: [...new Set([...origins, ...knownOrigins])],
   production: process.env.NODE_ENV === 'production', cookieSecure: process.env.COOKIE_SECURE === 'true',
   publicAppUrl: process.env.PUBLIC_APP_URL || 'https://smart-dj-platform-frontend.vercel.app',
