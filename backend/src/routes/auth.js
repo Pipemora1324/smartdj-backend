@@ -6,6 +6,9 @@ const router=Router();
 const limitMessage={error:'Demasiadas solicitudes. Espera unos minutos e intenta de nuevo.'};
 router.use(rateLimit({windowMs:15*60*1000,limit:30,standardHeaders:'draft-7',legacyHeaders:false,message:limitMessage}));
 router.use(['/verify-email','/resend-code','/forgot-password','/reset-password'],rateLimit({windowMs:15*60*1000,limit:10,standardHeaders:'draft-7',legacyHeaders:false,message:limitMessage}));
+// Auth propia de la Fase 1: ahora el registro, el login y la recuperación los hace Supabase Auth desde el frontend.
+// El código sigue abajo, pero estas rutas responden 410.
+router.use(['/register','/verify-email','/resend-code','/login','/refresh','/logout','/forgot-password','/reset-password'],(_req,res)=>res.status(410).json({error:'El registro y el inicio de sesión ahora se hacen con Supabase desde la app.'}));
 // Regex de email (formato estandar) + contrasena con minimo 8, una letra y un numero.
 const emailRegex=/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const emailSchema=z.string().trim().max(254).regex(emailRegex,'Correo electrónico inválido');
