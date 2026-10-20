@@ -1,7 +1,7 @@
 import 'dotenv/config';
-const required = ['DATABASE_URL','REDIS_URL','AI_SERVICE_URL','JWT_ACCESS_SECRET','JWT_REFRESH_SECRET'];
+const required = ['DATABASE_URL','REDIS_URL','AI_SERVICE_URL','JWT_ACCESS_SECRET','JWT_REFRESH_SECRET','AUTH_CODE_SECRET'];
 for (const name of required) if (!process.env[name]) throw new Error(`Missing required environment variable: ${name}`);
-for (const name of ['JWT_ACCESS_SECRET','JWT_REFRESH_SECRET']) if (process.env[name].length < 32) throw new Error(`${name} must be at least 32 characters long`);
+for (const name of ['JWT_ACCESS_SECRET','JWT_REFRESH_SECRET','AUTH_CODE_SECRET']) if (process.env[name].length < 32) throw new Error(`${name} must be at least 32 characters long`);
 const redisUrl = (() => {
   const value = process.env.REDIS_URL;
   const parsed = new URL(value);
@@ -33,7 +33,7 @@ export const config = {
   aiUrl: process.env.AI_SERVICE_URL, origins: [...new Set([...origins, ...knownOrigins])],
   production: process.env.NODE_ENV === 'production', cookieSecure: process.env.COOKIE_SECURE === 'true',
   publicAppUrl: process.env.PUBLIC_APP_URL || 'https://smart-dj-platform-frontend.vercel.app',
-  resendApiKey: process.env.RESEND_API_KEY,
+  resendApiKey: process.env.RESEND_API_KEY, authCodeSecret: process.env.AUTH_CODE_SECRET,
   smtp: {
     host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587),
     user: process.env.SMTP_USER, pass: process.env.SMTP_PASS,
