@@ -54,15 +54,54 @@ El registro, la verificación del correo, el inicio de sesión y la recuperació
 | --- | --- |
 | 3000 | API directa (la que usa el frontend en local) |
 | 8080 | Gateway Nginx (`/api/`, con límite de 5 intentos de login por minuto por IP) |
+| 50051 | Servidor gRPC del motor de IA (publicado en local para el script de prueba) |
 
 ## Servicios
 
 | Servicio | Responsabilidad |
 | --- | --- |
 | gateway | Reverse proxy de `/api/` y límite de intentos de login |
-| backend | REST, tokens JWT y cookies HttpOnly, cola y persistencia |
-| ai | BPM/tonalidad con librosa y compatibilidad/transición por heurísticas |
+| backend | REST, validación de tokens de Supabase, cola BullMQ, cliente gRPC del motor y estado en vivo (SSE) |
+| ai | Compatibilidad musical por heurísticas (gRPC y HTTP) y análisis de BPM/tonalidad con librosa |
 | postgres / redis | Datos relacionales, caché, pub/sub y BullMQ |
+
+## gRPC entre el backend y el motor de IA
+
+El backend llama al motor por **gRPC** (HTTP/2, Protocol Buffers). El navegador sigue usando **REST** y recibe el progreso de su petición por **SSE**, o por polling si SSE falla.
+
+```
+ Navegador                Backend (Node)                         Motor de IA (Python)
+ ─────────                ──────────────                         ────────────────────
+ POST /api/public/...  ─▶ guarda la petición
+                          y la encola (BullMQ)
+                          Worker ── StreamEvaluation (gRPC) ───▶ QUEUED
+                                 ◀─ evento por etapa ─────────── ANALYZING_GENRE
+                          publica cada etapa en Redis            ANALYZING_BPM
+ GET .../events (SSE)  ◀─ reenvía cada etapa                     ANALYZING_KEY
+ (o GET .../:id polling)  guarda el resultado en Postgres ◀───── RESULT
+```
+
+- **Contrato:** `ai/proto/compatibility.proto`, con una copia idéntica en `backend/proto/` (lo verifica `npm test`). Tiene dos RPC:
+  - `CheckCompatibility` (unario): lo usa `POST /api/venues/:id/analyze`.
+  - `StreamEvaluation` (server streaming): lo usa la cola de peticiones.
+- **Estado en vivo para el navegador:**
+  - `GET /api/public/requests/:id` (polling).
+  - `GET /api/public/requests/:id/events` (SSE, eventos `status`).
+- **Activación:**
+  - En el motor, `AI_GRPC_PORT` enciende el servidor gRPC.
+  - En el backend, `AI_GRPC_URL` (`host:puerto`) activa el cliente. Si está vacía, se usa HTTP con `AI_SERVICE_URL`.
+  - `docker-compose.yml` ya define las dos.
+- **Errores:** cada llamada tiene deadline (`AI_GRPC_TIMEOUT_MS`), espera la conexión como máximo `AI_GRPC_CONNECT_TIMEOUT_MS` y la cola reintenta 3 veces. Si todo falla, el navegador recibe el estado `failed`.
+- **Despliegue:** Render gratis no permite gRPC entre servicios. Las opciones y los pasos están en [DECISIONES_GRPC.md](DECISIONES_GRPC.md).
+
+### Probar gRPC en local
+
+```bash
+docker compose up --build                     # levanta todo, con gRPC activado
+cd backend && node scripts/grpc-smoke.mjs     # llama a CheckCompatibility y StreamEvaluation en localhost:50051
+npm test                                      # pruebas del cliente gRPC y de la sincronía del proto
+cd ../ai && python -m unittest discover -s tests   # pruebas del servidor gRPC
+```
 
 ## CORS
 
