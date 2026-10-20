@@ -6,7 +6,7 @@ API de SmartDJ: gateway Nginx, API Express, motor FastAPI/librosa, PostgreSQL y 
 
 Requiere Docker con Docker Compose.
 
-1. Copia `.env.example` como `.env` y cambia todos los valores `CAMBIAR_ESTO` (ver [Variables](#variables)). El servidor no arranca si falta alguna clave o si tiene menos de 32 caracteres.
+1. Copia `.env.example` como `.env` y cambia todos los valores `CAMBIAR_ESTO` (ver [Variables](#variables)). El servidor no arranca si falta `SUPABASE_URL` o `SUPABASE_JWKS_URL`.
 2. Ejecuta:
 
    ```bash
@@ -19,15 +19,13 @@ Requiere Docker con Docker Compose.
 
 | Variable | Uso |
 | --- | --- |
-| `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | Firman los tokens. Obligatorias, 32 caracteres o más y distintas entre sí. |
-| `AUTH_CODE_SECRET` | Clave del HMAC con que se guardan los códigos de 6 dígitos. Obligatoria, 32 caracteres o más. |
-| `RESEND_API_KEY` | Envío de correos con [Resend](https://resend.com). Déjala vacía si no la usas. |
-| `MAIL_FROM` | Remitente. Con Resend debe ser de un dominio verificado. |
-| `SMTP_*` | Alternativa a Resend. |
+| `SUPABASE_URL` | URL del proyecto, `https://<ref>.supabase.co`. Obligatoria: con ella se valida el emisor de los tokens. |
+| `SUPABASE_JWKS_URL` | `https://<ref>.supabase.co/auth/v1/.well-known/jwks.json`. Claves públicas para validar los tokens (RS256/ES256). No es un secreto. |
+| `SUPABASE_JWT_SECRET` | **Solo** si el proyecto sigue con el secreto HS256 heredado. Es un secreto: va únicamente en Render. No está en `.env.example` a propósito, para que nadie copie un valor de ejemplo como secreto real. |
 
-Genera claves aleatorias con `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`.
+Hace falta `SUPABASE_JWKS_URL` o `SUPABASE_JWT_SECRET`; lo recomendado es usar claves asimétricas y solo el JWKS.
 
-Si no hay `RESEND_API_KEY` ni SMTP, los códigos de verificación y recuperación se imprimen **solo en el log del servidor**, nunca en la respuesta de la API.
+Las variables `SMTP_*` y `MAIL_FROM` ya no se usan: los correos los envía Supabase.
 
 ## Migraciones
 
@@ -37,18 +35,18 @@ Los cambios de esquema están en `database/migrations/` y se pueden ejecutar má
 
   ```bash
   docker compose exec -T postgres psql -U smartdj -d smartdj < database/migrations/001_verificacion_por_codigo.sql
+  docker compose exec -T postgres psql -U smartdj -d smartdj < database/migrations/002_supabase_auth.sql
   ```
 
-- **Supabase:** copia el contenido del archivo en el SQL Editor y ejecútalo.
+- **Supabase:** copia el contenido de cada archivo, en orden, en el SQL Editor y ejecútalo.
 
 ## Autenticación
 
-- `POST /api/auth/register`: crea la cuenta sin verificar y envía un código de 6 dígitos.
-- `POST /api/auth/verify-email` `{email, code}`: verifica la cuenta e inicia sesión.
-- `POST /api/auth/resend-code` `{email}`: reenvía el código (60 s de espera entre envíos).
-- `POST /api/auth/forgot-password` `{email}` y `POST /api/auth/reset-password` `{email, code, password}`: recuperación con código.
-- Los códigos vencen en 10 minutos, son de un solo uso y se invalidan tras 5 intentos fallidos.
-- `POST /api/auth/logout` revoca los tokens en Redis. Cambiar la contraseña cierra todas las sesiones.
+El registro, la verificación del correo, el inicio de sesión y la recuperación de contraseña los hace **Supabase Auth** desde el frontend. Supabase envía los códigos de 6 dígitos con el SMTP de Gmail configurado en su panel. La configuración completa está en [SUPABASE_AUTH.md](SUPABASE_AUTH.md).
+
+- La API recibe el access token de Supabase como `Authorization: Bearer <token>` y lo valida con el JWKS: firma, emisor, audiencia `authenticated` y vencimiento.
+- `GET /api/auth/me`: devuelve el perfil. La primera vez crea la fila en `users`, vinculada por `auth_id`, si el correo está confirmado.
+- Las rutas de la auth propia anterior (`/register`, `/login`, `/verify-email`, `/forgot-password`, etc.) responden **410**.
 
 ## Puertos
 
