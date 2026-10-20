@@ -1,4 +1,4 @@
-Eservices:
+services:
   gateway:
     build: ./gateway
     ports: ["8080:80"]
