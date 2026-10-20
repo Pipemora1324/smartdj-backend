@@ -8,6 +8,8 @@ services:
     build: ./backend
     ports: ["3000:3000"]
     env_file: .env
+    environment:
+      AI_GRPC_URL: ai:50051
     depends_on:
       postgres:
         condition: service_healthy
@@ -18,6 +20,9 @@ services:
     networks: [smartdj]
   ai:
     build: ./ai
+    environment:
+      AI_GRPC_PORT: "50051"
+    ports: ["50051:50051"]
     networks: [smartdj]
   postgres:
     image: postgres:16-alpine
