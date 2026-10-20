@@ -25,6 +25,15 @@ export const closeAiClient = () => { client?.close(); client = null; };
 
 const deadlineIn = (ms) => new Date(Date.now() + ms);
 
+// Espera la conexión con el motor como máximo connectTimeoutMs. Sin esto, con el motor caído cada
+// llamada esperaría el deadline completo antes de fallar.
+const ensureConnected = (connectTimeoutMs = config.aiGrpcConnectTimeoutMs) =>
+  new Promise((resolve, reject) => {
+    getClient().waitForReady(deadlineIn(connectTimeoutMs), (err) => (err
+      ? reject(new AppError(503, 'El motor de compatibilidad no está disponible en este momento.', { grpcCode: 'UNAVAILABLE' }))
+      : resolve()));
+  });
+
 // Convierte un error gRPC en un AppError con mensaje en español; conserva el código gRPC en extra.
 export const toAppError = (err) => {
   const byCode = {
@@ -38,15 +47,18 @@ export const toAppError = (err) => {
 };
 
 // Evaluación unaria. request usa los nombres del proto (venue_type, current_bpm, ...).
-export const checkCompatibility = (request, { timeoutMs = config.aiGrpcTimeoutMs } = {}) =>
-  new Promise((resolve, reject) => {
+export const checkCompatibility = async (request, { timeoutMs = config.aiGrpcTimeoutMs } = {}) => {
+  await ensureConnected();
+  return new Promise((resolve, reject) => {
     getClient().CheckCompatibility(request, { deadline: deadlineIn(timeoutMs) }, (err, result) => (err ? reject(toAppError(err)) : resolve(result)));
   });
+};
 
 // Evaluación con server streaming: llama a onEvent(evento) por cada etapa y resuelve con el resultado final.
 // Espera a que terminen los onEvent asíncronos (por ejemplo, publicar en Redis) antes de resolver.
-export const streamEvaluation = (requestId, request, onEvent, { timeoutMs = config.aiGrpcTimeoutMs } = {}) =>
-  new Promise((resolve, reject) => {
+export const streamEvaluation = async (requestId, request, onEvent, { timeoutMs = config.aiGrpcTimeoutMs } = {}) => {
+  await ensureConnected();
+  return new Promise((resolve, reject) => {
     const call = getClient().StreamEvaluation({ request_id: requestId, compatibility: request }, { deadline: deadlineIn(timeoutMs) });
     const pending = [];
     let result = null;
@@ -63,3 +75,4 @@ export const streamEvaluation = (requestId, request, onEvent, { timeoutMs = conf
         : reject(new AppError(502, 'El motor terminó la evaluación sin enviar un resultado.'))));
     });
   });
+};
