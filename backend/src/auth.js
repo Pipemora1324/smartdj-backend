@@ -3,8 +3,8 @@ import crypto from 'crypto';
 import { config } from './config.js';
 import { redis } from './redis.js';
 import { AppError } from './errors.js';
-export const accessToken = user => jwt.sign({ sub:user.id, email:user.email, role:user.role, jti:crypto.randomUUID() }, config.accessSecret, { expiresIn:'15m' });
-export const refreshToken = user => jwt.sign({ sub:user.id, jti:crypto.randomUUID() }, config.refreshSecret, { expiresIn:'7d' });
+export const accessToken = user => jwt.sign({ sub:user.id, email:user.email, role:user.role, jti:crypto.randomUUID(), ts:Date.now() }, config.accessSecret, { expiresIn:'15m' });
+export const refreshToken = user => jwt.sign({ sub:user.id, jti:crypto.randomUUID(), ts:Date.now() }, config.refreshSecret, { expiresIn:'7d' });
 // Cross-site (Vercel -> Render) exige SameSite=None + Secure. En local usamos lax.
 export const setRefreshCookie = (res, token) => res.cookie('smartdj_refresh', token, { httpOnly:true, secure:config.cookieSecure || config.production, sameSite:config.production ? 'none' : 'lax', partitioned:config.production, path:'/api/auth', maxAge:604800000 });
 export const clearRefreshCookie = (res) => res.clearCookie('smartdj_refresh', { httpOnly:true, secure:config.cookieSecure || config.production, sameSite:config.production ? 'none' : 'lax', partitioned:config.production, path:'/api/auth' });
@@ -29,7 +29,7 @@ export const revokeToken = async (payload) => {
 // Al cambiar la contraseña, invalida todos los tokens del usuario emitidos hasta ahora (7 días = vida del refresh).
 export const revokeUserSessions = async (userId) => {
   try {
-    await redisWithTimeout(redis.set(`revoked_before:${userId}`, String(Math.floor(Date.now() / 1000)), 'EX', 604800));
+    await redisWithTimeout(redis.set(`revoked_before:${userId}`, String(Date.now()), 'EX', 604800));
   } catch (err) {
     console.error('Redis error revoking user sessions:', err.message);
   }
@@ -37,7 +37,8 @@ export const revokeUserSessions = async (userId) => {
 export const issuedBeforeRevocation = async (payload) => {
   try {
     const value = await redisWithTimeout(redis.get(`revoked_before:${payload.sub}`));
-    return value !== null && payload.iat <= Number(value);
+    // ts (ms) distingue tokens emitidos en el mismo segundo del cambio; iat es el respaldo.
+    return value !== null && (payload.ts ?? payload.iat * 1000) <= Number(value);
   } catch (err) {
     console.error('Redis error checking user sessions:', err.message);
     return false;
