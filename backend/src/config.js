@@ -34,6 +34,7 @@ export const config = {
   production: process.env.NODE_ENV === 'production', cookieSecure: process.env.COOKIE_SECURE === 'true',
   publicAppUrl: process.env.PUBLIC_APP_URL || 'https://smart-dj-platform-frontend.vercel.app',
   resendApiKey: process.env.RESEND_API_KEY, authCodeSecret: process.env.AUTH_CODE_SECRET,
+  supabaseUrl: process.env.SUPABASE_URL || '', supabaseJwksUrl: process.env.SUPABASE_JWKS_URL || '', supabaseJwtSecret: process.env.SUPABASE_JWT_SECRET || '',
   smtp: {
     host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587),
     user: process.env.SMTP_USER, pass: process.env.SMTP_PASS,
