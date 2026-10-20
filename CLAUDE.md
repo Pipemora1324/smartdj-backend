@@ -17,4 +17,4 @@ Plataforma para locales (cafeterías, restaurantes, bares). El dueño crea cuent
 - **Secretos:** no leer ni tocar `.env`. En `.env.example` solo placeholders `CAMBIAR_ESTO`.
 - **Git remoto:** no hacer push sin confirmación del usuario. Nunca usar `--force` ni reescribir el historial.
 - **Trabajo por fases:** una fase a la vez. Al terminar cada una, detenerse y decir qué hay que configurar en Render, Vercel o Supabase.
-- **Comunicación backend ↔ ai:** en una fase próxima pasará a gRPC (con streaming). Todavía no existe el `.proto`; no asumir su forma.
+- **Comunicación backend ↔ ai: gRPC.** Contrato en `ai/proto/compatibility.proto`, con una copia idéntica en `backend/proto/` (`npm test` lo verifica; cambia siempre los dos). Cliente: `backend/src/ai-client.js`. Servidor: `ai/app/grpc_server.py`, sobre `ai/app/engine.py`. Sin `AI_GRPC_URL`, el backend usa HTTP (`AI_SERVICE_URL`). Render gratis no soporta gRPC entre servicios: ver `DECISIONES_GRPC.md`.
