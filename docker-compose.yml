@@ -2,10 +2,7 @@ services:
   gateway:
     build: ./gateway
     ports: ["8080:80"]
-    depends_on: [frontend, backend]
-    networks: [smartdj]
-  frontend:
-    build: ./frontend
+    depends_on: [backend]
     networks: [smartdj]
   backend:
     build: ./backend
