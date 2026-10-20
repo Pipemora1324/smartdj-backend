@@ -1,0 +1,60 @@
+// Contrato gRPC entre el backend (Node) y el motor de compatibilidad musical (Python).
+// La copia en backend/proto/compatibility.proto debe ser idéntica (lo verifica npm test).
+syntax = "proto3";
+
+package smartdj.compatibility.v1;
+
+service CompatibilityService {
+  // Evaluación directa: una petición, una respuesta.
+  rpc CheckCompatibility (CompatibilityRequest) returns (CompatibilityResult);
+  // Evaluación paso a paso: el servidor emite un evento por etapa y termina con el resultado.
+  rpc StreamEvaluation (EvaluationRequest) returns (stream EvaluationEvent);
+}
+
+// Datos de la canción que suena (current_*) y de la pedida (requested_*).
+message CompatibilityRequest {
+  string venue_type = 1;       // restaurant, cafe, salsa_bar, nightclub, lounge u other
+  string current_genre = 2;
+  string requested_genre = 3;
+  double current_bpm = 4;      // mayor que 0 y hasta 300
+  double requested_bpm = 5;    // mayor que 0 y hasta 300
+  string current_key = 6;      // por ejemplo "C", "Am", "F#"
+  string requested_key = 7;
+}
+
+// Un tema intermedio sugerido para pasar de la canción actual a la pedida.
+message BridgeStep {
+  int32 position = 1;
+  string genre = 2;
+  int32 target_bpm = 3;
+  string purpose = 4;
+}
+
+message CompatibilityResult {
+  bool accepted = 1;
+  int32 score = 2;                         // de 0 a 100
+  string reason = 3;
+  repeated BridgeStep bridge_sequence = 4; // vacío si se acepta
+  string profile = 5;                      // familia de género del local
+}
+
+message EvaluationRequest {
+  string request_id = 1;                   // id de song_requests, para correlacionar los eventos
+  CompatibilityRequest compatibility = 2;
+}
+
+message EvaluationEvent {
+  enum Stage {
+    STAGE_UNSPECIFIED = 0;
+    QUEUED = 1;
+    ANALYZING_GENRE = 2;
+    ANALYZING_BPM = 3;
+    ANALYZING_KEY = 4;
+    RESULT = 5;
+  }
+  string request_id = 1;
+  Stage stage = 2;
+  string message = 3;                      // texto en español para mostrar al usuario
+  double partial_score = 4;                // puntaje de la etapa, de 0 a 1 (0 en QUEUED y RESULT)
+  CompatibilityResult result = 5;          // solo en la etapa RESULT
+}
