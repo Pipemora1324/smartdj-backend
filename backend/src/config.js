@@ -1,7 +1,7 @@
 import 'dotenv/config';
-const required = ['DATABASE_URL','REDIS_URL','AI_SERVICE_URL','JWT_ACCESS_SECRET','JWT_REFRESH_SECRET','AUTH_CODE_SECRET'];
+const required = ['DATABASE_URL','REDIS_URL','AI_SERVICE_URL','SUPABASE_URL'];
 for (const name of required) if (!process.env[name]) throw new Error(`Missing required environment variable: ${name}`);
-for (const name of ['JWT_ACCESS_SECRET','JWT_REFRESH_SECRET','AUTH_CODE_SECRET']) if (process.env[name].length < 32) throw new Error(`${name} must be at least 32 characters long`);
+if (!process.env.SUPABASE_JWKS_URL && !process.env.SUPABASE_JWT_SECRET) throw new Error('Missing required environment variable: SUPABASE_JWKS_URL (or SUPABASE_JWT_SECRET)');
 const redisUrl = (() => {
   const value = process.env.REDIS_URL;
   const parsed = new URL(value);
@@ -41,10 +41,6 @@ export const config = {
     from: process.env.MAIL_FROM || 'SmartDJ <no-reply@smartdj.app>',
   },
 };
-
-if (config.production && (!config.accessSecret || !config.refreshSecret)) {
-  throw new Error('JWT_ACCESS_SECRET y JWT_REFRESH_SECRET son obligatorios en producción');
-}
 
 // Verdadero si el origen de la peticion esta permitido.
 export const isAllowedOrigin = (origin) =>
