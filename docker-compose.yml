@@ -6,6 +6,7 @@ services:
     networks: [smartdj]
   backend:
     build: ./backend
+    ports: ["3000:3000"]
     env_file: .env
     depends_on:
       postgres:
