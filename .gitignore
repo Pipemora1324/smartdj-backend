@@ -37,6 +37,6 @@ redis_data/
 .DS_Store
 Thumbs.db
 
-# Claude Code
+# Configuracion local
 .claude/settings.json
 .claude/settings.local.json
