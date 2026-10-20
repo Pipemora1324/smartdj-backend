@@ -1,6 +1,6 @@
 import { Router } from 'express'; import argon2 from 'argon2'; import jwt from 'jsonwebtoken'; import { z } from 'zod'; import { rateLimit } from 'express-rate-limit';
 import { query } from '../db.js'; import { AppError } from '../errors.js'; import { accessToken, refreshToken, setRefreshCookie, clearRefreshCookie, requireAuth, revokeToken, revokeUserSessions, issuedBeforeRevocation } from '../auth.js'; import { config } from '../config.js';
-import { withTransaction } from '../db.js'; import { issueCode, consumeCode } from '../codes.js';
+import { withTransaction } from '../db.js'; import { issueCode, consumeCode } from '../codes.js'; import { requireSupabaseAuth } from '../supabase-auth.js';
 const router=Router();
 // Rate limit por IP: general para todo /api/auth y más estricto donde se prueban o envían códigos.
 const limitMessage={error:'Demasiadas solicitudes. Espera unos minutos e intenta de nuevo.'};
@@ -31,5 +31,5 @@ router.post('/logout',async(req,res)=>{const header=(req.get('authorization')||'
 router.post('/forgot-password',async(req,res,next)=>{try{const {email}=z.object({email:emailSchema}).parse(req.body);const r=await query('SELECT id,email FROM users WHERE email=$1',[email.toLowerCase()]);res.json({message:'Si el correo existe, te enviamos un código para restablecer tu contraseña.'});if(r.rowCount)issueCode(r.rows[0],'reset_password').catch(e=>console.error('No se pudo enviar el código de recuperación:',e.message));}catch(e){next(e);}});
 // Cambio de contrasena usando el token recibido por correo.
 router.post('/reset-password',async(req,res,next)=>{try{const {email,code,password}=z.object({email:emailSchema,code:codeSchema,password:passwordSchema}).parse(req.body);const r=await query('SELECT id FROM users WHERE email=$1',[email.toLowerCase()]);const user=r.rows[0];if(!user)throw new AppError(400,invalidCode);const hash=await argon2.hash(password,{type:argon2.argon2id,memoryCost:19456,timeCost:2,parallelism:1});const err=await withTransaction(async c=>{const e=await consumeCode(c,user.id,'reset_password',code);if(e)return e;await c.query('UPDATE users SET password_hash=$1,email_verified=TRUE WHERE id=$2',[hash,user.id]);return null;});if(err)throw err;await revokeUserSessions(user.id);res.json({message:'Contraseña actualizada correctamente'});}catch(e){next(e);}});
-router.get('/me',requireAuth,async(req,res,next)=>{try{const r=await query('SELECT id,email,name,role FROM users WHERE id=$1',[req.user.sub]); if(!r.rowCount) throw new AppError(404,'Usuario no encontrado'); res.json(r.rows[0]);}catch(e){next(e);}});
+router.get('/me',requireSupabaseAuth,async(req,res,next)=>{try{const r=await query('SELECT id,email,name,role FROM users WHERE id=$1',[req.user.sub]); if(!r.rowCount) throw new AppError(404,'Usuario no encontrado'); res.json(r.rows[0]);}catch(e){next(e);}});
 export default router;

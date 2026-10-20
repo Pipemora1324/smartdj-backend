@@ -1,5 +1,5 @@
-import { Router } from 'express'; import { z } from 'zod'; import axios from 'axios'; import { query } from '../db.js'; import { requireAuth } from '../auth.js'; import { AppError } from '../errors.js'; import { config } from '../config.js';
-const router=Router(); router.use(requireAuth);
+import { Router } from 'express'; import { z } from 'zod'; import axios from 'axios'; import { query } from '../db.js'; import { requireSupabaseAuth } from '../supabase-auth.js'; import { AppError } from '../errors.js'; import { config } from '../config.js';
+const router=Router(); router.use(requireSupabaseAuth);
 const venueSchema=z.object({name:z.string().trim().min(2).max(120),kind:z.enum(['restaurant','cafe','salsa_bar','nightclub','lounge','other']),ambience:z.string().trim().min(2).max(500)});
 router.get('/',async(req,res,next)=>{try{const r=await query('SELECT * FROM establishments WHERE owner_id=$1 ORDER BY created_at DESC',[req.user.sub]);res.json(r.rows);}catch(e){next(e);}});
 router.post('/',async(req,res,next)=>{try{const d=venueSchema.parse(req.body);const r=await query('INSERT INTO establishments(owner_id,name,kind,ambience,public_code) VALUES($1,$2,$3,$4,encode(gen_random_bytes(6),\'hex\')) RETURNING *',[req.user.sub,d.name,d.kind,d.ambience]);res.status(201).json(r.rows[0]);}catch(e){next(e);}});
