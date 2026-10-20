@@ -11,7 +11,7 @@ class Compatibility(BaseModel):
     current_key: str = 'C'; requested_key: str = 'C'
 class Analysis(BaseModel): audio_url: str
 @app.get('/health')
-def health(): return {'status':'ok','engine':'heuristic+librosa','grpc_port':int(os.environ.get('AI_GRPC_PORT','50051'))}
+def health(): return {'status':'ok','engine':'heuristic+librosa','grpc':bool(os.environ.get('AI_GRPC_PORT'))}
 @app.post('/compatibility')
 def compatibility(data: Compatibility):
     return evaluate(data.venue_type,data.current_genre,data.requested_genre,data.current_bpm,data.requested_bpm,data.current_key,data.requested_key)
