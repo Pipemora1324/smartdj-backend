@@ -2,3 +2,41 @@
 node_modules/
 __pycache__/
 *.pyc
+
+# Secretos
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+secrets/
+credentials*.json
+
+# Dependencias
+.venv/
+venv/
+
+# Builds y logs
+dist/
+build/
+coverage/
+*.log
+
+# Datos locales
+pgdata/
+postgres_data/
+redis_data/
+*.sql.bak
+*.dump
+
+# Editor y sistema
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Claude Code
+.claude/settings.json
+.claude/settings.local.json
