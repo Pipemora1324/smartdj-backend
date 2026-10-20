@@ -6,7 +6,7 @@ API de SmartDJ: gateway Nginx, API Express, motor FastAPI/librosa, PostgreSQL y 
 
 Requiere Docker con Docker Compose.
 
-1. Copia `.env.example` como `.env` y cambia todos los valores `CAMBIAR_ESTO` (contraseña de la base de datos y claves JWT de al menos 32 caracteres).
+1. Copia `.env.example` como `.env` y cambia todos los valores `CAMBIAR_ESTO` (ver [Variables](#variables)). El servidor no arranca si falta alguna clave o si tiene menos de 32 caracteres.
 2. Ejecuta:
 
    ```bash
@@ -14,6 +14,41 @@ Requiere Docker con Docker Compose.
    ```
 
 3. Comprueba que responde: `http://localhost:3000/api/health`.
+
+## Variables
+
+| Variable | Uso |
+| --- | --- |
+| `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | Firman los tokens. Obligatorias, 32 caracteres o más y distintas entre sí. |
+| `AUTH_CODE_SECRET` | Clave del HMAC con que se guardan los códigos de 6 dígitos. Obligatoria, 32 caracteres o más. |
+| `RESEND_API_KEY` | Envío de correos con [Resend](https://resend.com). Déjala vacía si no la usas. |
+| `MAIL_FROM` | Remitente. Con Resend debe ser de un dominio verificado. |
+| `SMTP_*` | Alternativa a Resend. |
+
+Genera claves aleatorias con `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`.
+
+Si no hay `RESEND_API_KEY` ni SMTP, los códigos de verificación y recuperación se imprimen **solo en el log del servidor**, nunca en la respuesta de la API.
+
+## Migraciones
+
+Los cambios de esquema están en `database/migrations/` y se pueden ejecutar más de una vez sin romper datos.
+
+- **Docker local:** se aplican solos al crear el volumen de Postgres por primera vez. Si ya tenías el volumen, ejecútalos a mano:
+
+  ```bash
+  docker compose exec -T postgres psql -U smartdj -d smartdj < database/migrations/001_verificacion_por_codigo.sql
+  ```
+
+- **Supabase:** copia el contenido del archivo en el SQL Editor y ejecútalo.
+
+## Autenticación
+
+- `POST /api/auth/register`: crea la cuenta sin verificar y envía un código de 6 dígitos.
+- `POST /api/auth/verify-email` `{email, code}`: verifica la cuenta e inicia sesión.
+- `POST /api/auth/resend-code` `{email}`: reenvía el código (60 s de espera entre envíos).
+- `POST /api/auth/forgot-password` `{email}` y `POST /api/auth/reset-password` `{email, code, password}`: recuperación con código.
+- Los códigos vencen en 10 minutos, son de un solo uso y se invalidan tras 5 intentos fallidos.
+- `POST /api/auth/logout` revoca los tokens en Redis. Cambiar la contraseña cierra todas las sesiones.
 
 ## Puertos
 
