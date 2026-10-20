@@ -45,4 +45,4 @@ if (config.production && (!config.accessSecret || !config.refreshSecret)) {
 
 // Verdadero si el origen de la peticion esta permitido.
 export const isAllowedOrigin = (origin) =>
-  !origin || config.origins.includes(origin) || /\.vercel\.app$/.test(origin);
+  !origin || config.origins.includes(origin);
