@@ -26,6 +26,23 @@ export const revokeToken = async (payload) => {
     return true;
   }
 };
+// Al cambiar la contraseña, invalida todos los tokens del usuario emitidos hasta ahora (7 días = vida del refresh).
+export const revokeUserSessions = async (userId) => {
+  try {
+    await redisWithTimeout(redis.set(`revoked_before:${userId}`, String(Math.floor(Date.now() / 1000)), 'EX', 604800));
+  } catch (err) {
+    console.error('Redis error revoking user sessions:', err.message);
+  }
+};
+export const issuedBeforeRevocation = async (payload) => {
+  try {
+    const value = await redisWithTimeout(redis.get(`revoked_before:${payload.sub}`));
+    return value !== null && payload.iat <= Number(value);
+  } catch (err) {
+    console.error('Redis error checking user sessions:', err.message);
+    return false;
+  }
+};
 // Acepta el token del header 'Authorization: Bearer <token>' o, si no viene,
 // de la cookie HttpOnly. El header tiene prioridad.
 export const requireAuth = async (req,_res,next) => {
@@ -63,6 +80,8 @@ export const requireAuth = async (req,_res,next) => {
   } finally {
     clearTimeout(timeoutId);
   }
+
+  if(await issuedBeforeRevocation(payload)) return next(new AppError(401,'Sesión inválida'));
 
   req.user=payload;
   next();
