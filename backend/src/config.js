@@ -38,6 +38,11 @@ export const config = {
   // gRPC con el motor de IA: si AI_GRPC_URL (host:puerto) está vacío se usa HTTP con AI_SERVICE_URL.
   aiGrpcUrl: process.env.AI_GRPC_URL || '', aiGrpcTls: process.env.AI_GRPC_TLS === 'true',
   aiGrpcTimeoutMs: Number(process.env.AI_GRPC_TIMEOUT_MS || 10000), aiGrpcConnectTimeoutMs: Number(process.env.AI_GRPC_CONNECT_TIMEOUT_MS || 3000),
+  // Catálogo de la emisora (ver DECISIONES_DJ.md). Sin JAMENDO_CLIENT_ID el buscador de pistas avisa que no está configurado.
+  jamendoClientId: process.env.JAMENDO_CLIENT_ID || '', jamendoApiUrl: process.env.JAMENDO_API_URL || 'https://api.jamendo.com/v3.0',
+  jamendoMonthlyBudget: Number(process.env.JAMENDO_MONTHLY_BUDGET || 30000),
+  // Audius es opcional y la clave solo vive en el servidor.
+  audiusApiKey: process.env.AUDIUS_API_KEY || '',
   smtp: {
     host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587),
     user: process.env.SMTP_USER, pass: process.env.SMTP_PASS,
