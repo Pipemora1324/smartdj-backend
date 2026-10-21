@@ -60,3 +60,20 @@ export const matchesRequest = (row, title, artist) => {
   const artistMatch = Boolean(x && y && (x.includes(y) || y.includes(x)));
   return Boolean(a && b && artistMatch && (a === b || a.startsWith(`${b} `) || b.startsWith(`${a} `)));
 };
+
+// Género de una petición del público (texto de iTunes, p. ej. "Salsa y Tropical") → tags de Jamendo,
+// para que el AutoDJ favorezca ese estilo cuando la canción pedida no está en el catálogo libre.
+const GENRE_HINTS = [
+  [/salsa|tropical|cumbia|bachata|merengue|vallenato|latin|reggaeton|urbano/, ['latin', 'reggaeton']],
+  [/hip.?hop|rap|trap/, ['hiphop']],
+  [/electr|house|techno|dance|edm|trance/, ['electronic', 'house']],
+  [/jazz|soul|blues|bossa/, ['jazz']],
+  [/lounge|chill|ambient|lo.?fi/, ['lounge', 'chillout']],
+  [/rock|metal|alternativ|punk/, ['rock']],
+  [/acoust|acust|folk|indie/, ['acoustic', 'indie']],
+  [/pop|balada/, ['pop']],
+];
+export const tagsForGenre = (genre) => {
+  const text = normalizeText(genre);
+  return GENRE_HINTS.find(([pattern]) => pattern.test(text))?.[1] ?? [];
+};

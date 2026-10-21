@@ -59,3 +59,12 @@ test('cada tipo de local tiene géneros y los desconocidos usan los de "other"',
   assert.ok(tagsForVenue('nightclub').includes('electronic'));
   assert.deepEqual(tagsForVenue('nope'), tagsForVenue('other'));
 });
+
+test('el género de una petición de iTunes se traduce a tags de Jamendo', async () => {
+  const { tagsForGenre } = await import('../src/catalog-logic.js');
+  assert.deepEqual(tagsForGenre('Salsa y Tropical'), ['latin', 'reggaeton']);
+  assert.deepEqual(tagsForGenre('Electrónica'), ['electronic', 'house']);
+  assert.deepEqual(tagsForGenre('Hip-Hop/Rap'), ['hiphop']);
+  assert.deepEqual(tagsForGenre('Pop Latino'), ['latin', 'reggaeton']);
+  assert.deepEqual(tagsForGenre('Clásica'), []);
+});

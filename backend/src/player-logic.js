@@ -58,3 +58,9 @@ export const defaultTransition = (durationSeconds, crossfadeSeconds = 8) => {
   const crossfade = Math.min(Number(crossfadeSeconds) || 0, Math.max(0, duration / 4));
   return { transitionAtSeconds: Math.max(0, Math.round((duration - crossfade - 1) * 100) / 100), crossfadeSeconds: Math.round(crossfade * 100) / 100 };
 };
+
+// Fila de track_cache → TrackFeatures del proto (0 y '' = desconocido para el motor).
+export const toFeatures = (row) => (row ? {
+  id: row.id, genre: row.genre || '', bpm: Number(row.bpm) || 0, key: row.musical_key || '',
+  energy: Number(row.energy) || 0, duration_seconds: Number(row.duration_seconds) || 0, artist: row.artist || '',
+} : undefined);

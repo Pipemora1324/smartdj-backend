@@ -45,3 +45,10 @@ test('la transición por defecto sale antes del final', () => {
   assert.deepEqual(defaultTransition(20, 8), { transitionAtSeconds: 14, crossfadeSeconds: 5 });
   assert.deepEqual(defaultTransition(0, 8), { transitionAtSeconds: 0, crossfadeSeconds: 0 });
 });
+
+test('convierte una pista guardada en datos para el motor', async () => {
+  const { toFeatures } = await import('../src/player-logic.js');
+  assert.deepEqual(toFeatures({ id: 'u1', genre: 'lounge', bpm: '120.50', musical_key: null, energy: 3, duration_seconds: 200, artist: 'Ana' }),
+    { id: 'u1', genre: 'lounge', bpm: 120.5, key: '', energy: 3, duration_seconds: 200, artist: 'Ana' });
+  assert.equal(toFeatures(null), undefined);
+});
