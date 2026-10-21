@@ -146,6 +146,19 @@ Cada error 5xx se registra con método, ruta, mensaje y stack. De Postgres solo 
 
 Antes, con Redis caído la petición se quedaba colgada y un origen rechazado respondía 500. Ahora la app usa una conexión a Redis que falla en segundos y el worker de BullMQ tiene la suya propia. Con la cola vacía, el worker consulta Redis cada 60 s en lugar de cada 5 s, para no agotar la cuota gratis de Upstash.
 
+## Buscador de canciones (bloque B)
+
+- **`GET /api/public/venues/:code/search?q=`**: busca en iTunes Search **desde el servidor** (`backend/src/music-search.js`).
+  - `q` de 2 a 100 caracteres, timeout de 5 s, máximo 10 resultados.
+  - Rate limit de 30 por minuto por IP y caché de 10 min en Redis.
+  - Cada resultado trae `trackId`, `title`, `artist`, `genre`, `artworkUrl` (300×300) y `previewUrl` (30 s).
+  - Las URLs de portada y preview solo se aceptan si son `https` de dominios de Apple.
+- **`POST /api/public/venues/:code/requests`** con `{ trackId, guestName? }`:
+  - El backend vuelve a consultar la canción por id, así que no confía en los datos del navegador.
+  - Rate limit de 10 por minuto por IP.
+  - El formato anterior (`title`, `artist`, `genre`…) sigue aceptándose.
+- La migración `004_canciones_buscador.sql` agrega `external_id`, `artwork_url` y `preview_url` a `song_requests`. Mientras no se aplique, las peticiones se guardan sin esas columnas y el log avisa "Migraciones pendientes".
+
 ## CORS
 
 Solo se aceptan los orígenes de `knownOrigins` en `backend/src/config.js` y los que se agreguen en `CORS_ORIGIN` (separados por coma). Para un nuevo dominio del frontend, agrégalo a `CORS_ORIGIN`.
