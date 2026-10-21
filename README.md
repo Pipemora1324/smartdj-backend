@@ -92,7 +92,34 @@ El backend llama al motor por **gRPC** (HTTP/2, Protocol Buffers). El navegador 
   - En el backend, `AI_GRPC_URL` (`host:puerto`) activa el cliente. Si está vacía, se usa HTTP con `AI_SERVICE_URL`.
   - `docker-compose.yml` ya define las dos.
 - **Errores:** cada llamada tiene deadline (`AI_GRPC_TIMEOUT_MS`), espera la conexión como máximo `AI_GRPC_CONNECT_TIMEOUT_MS` y la cola reintenta 3 veces. Si todo falla, el navegador recibe el estado `failed`.
-- **Despliegue:** Render gratis no permite gRPC entre servicios. Las opciones y los pasos están en [DECISIONES_GRPC.md](DECISIONES_GRPC.md).
+- **Despliegue:** Render gratis no permite gRPC entre dos servicios, así que se usa un **contenedor único** (ver abajo). Todas las opciones están en [DECISIONES_GRPC.md](DECISIONES_GRPC.md).
+
+### Contenedor único (Render gratis)
+
+`Dockerfile.combined` (en la raíz) mete el motor y el backend en una sola imagen. `start-combined.sh`:
+1. Arranca el motor: gRPC en `127.0.0.1:50051` y HTTP en `127.0.0.1:8000`, ambos solo internos.
+2. Espera a que gRPC responda y arranca el backend en `$PORT`.
+3. Si cualquiera de los dos muere, el contenedor sale con error y Render lo reinicia.
+
+```
+[ contenedor ]  node (backend, $PORT público) ──gRPC 127.0.0.1:50051──▶ python (motor)
+```
+
+- **Memoria medida con un límite de 512 MB:** unos 97 MiB en reposo y unos 103 MiB con 20 peticiones simultáneas por SSE.
+- `/analyze` (librosa, unos +400 MB) está apagado en esta imagen con `AI_ENABLE_ANALYZE=false`.
+
+```bash
+docker build -f Dockerfile.combined -t smartdj-combined .
+docker run --rm -p 10000:10000 -e PORT=10000 -e DATABASE_URL=... -e REDIS_URL=... \
+  -e SUPABASE_URL=... -e SUPABASE_JWKS_URL=... smartdj-combined
+```
+
+**Para activarlo en Render:**
+- **Root Directory:** vacío.
+- **Dockerfile Path:** `./Dockerfile.combined`.
+- Agrega `AI_GRPC_URL=127.0.0.1:50051` y `AI_GRPC_TLS=false`.
+
+**Para volver atrás:** Root Directory `backend` y borrar `AI_GRPC_URL`. Los pasos detallados están en [DECISIONES_GRPC.md](DECISIONES_GRPC.md#cómo-activarlo-en-render-servicio-smart-dj-platform).
 
 ### Probar gRPC en local
 
