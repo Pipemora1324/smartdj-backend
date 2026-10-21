@@ -1,4 +1,4 @@
-import express from 'express'; import helmet from 'helmet'; import cors from 'cors'; import cookieParser from 'cookie-parser';
+import './zod-es.js'; import express from 'express'; import helmet from 'helmet'; import cors from 'cors'; import cookieParser from 'cookie-parser';
 import { config, isAllowedOrigin } from './config.js'; import { pool } from './db.js'; import { redis } from './redis.js'; import { AppError, errorHandler, notFound } from './errors.js';
 import authRoutes from './routes/auth.js'; import venueRoutes from './routes/venues.js'; import publicRoutes from './routes/public.js'; import './queue.js'; import { checkSchema } from './schema-check.js'; import { checkAiConnection } from './ai-client.js';
 const app=express(); app.set('trust proxy',1); app.use(helmet({crossOriginResourcePolicy:false}));
