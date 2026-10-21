@@ -1,3 +1,24 @@
 export class AppError extends Error { constructor(status, message, extra = {}) { super(message); this.status = status; this.extra = extra; } }
 export const notFound = (_req,res) => res.status(404).json({ error: 'Recurso no encontrado' });
-export const errorHandler = (err,_req,res,_next) => { console.error(err); const isValidation=err?.name==='ZodError'; const zodMessage=isValidation?err.issues?.[0]?.message:null; res.status(err.status || (isValidation ? 400 : 500)).json({ error: err.status ? err.message : (zodMessage || (isValidation ? 'Datos de entrada inválidos' : 'Error interno del servidor')), ...(err.status && err.extra ? err.extra : {}) }); };
+
+// Campos de un error de Postgres que se pueden registrar sin exponer datos (detail puede traer valores).
+const dbFields = (err) => ['code', 'table', 'column', 'constraint', 'routine'].filter((key) => err?.[key]).map((key) => `${key}=${err[key]}`).join(' ');
+
+// Mensaje y estado para cada tipo de error. Solo los AppError y los de validación muestran su mensaje al usuario.
+const describe = (err) => {
+  if (err?.name === 'ZodError') return [400, err.issues?.[0]?.message || 'Datos de entrada inválidos'];
+  if (err?.type === 'entity.parse.failed') return [400, 'El cuerpo de la petición no es un JSON válido.'];
+  if (err?.type === 'entity.too.large') return [413, 'El cuerpo de la petición es demasiado grande.'];
+  if (err instanceof AppError) return [err.status, err.message];
+  return [500, 'Error interno del servidor'];
+};
+
+export const errorHandler = (err, req, res, _next) => {
+  const [status, message] = describe(err);
+  const where = `${req.method} ${req.baseUrl}${req.path}`;
+  // Todo 5xx se registra con mensaje y stack; nunca el cuerpo de la petición ni el detail de Postgres.
+  if (status >= 500) console.error(`[${status}] ${where} → ${err?.name || 'Error'}: ${err?.message} ${dbFields(err)}\n${err?.stack || ''}`);
+  else console.warn(`[${status}] ${where} → ${message}`);
+  if (res.headersSent) return res.end();
+  res.status(status).json({ error: message, ...(err instanceof AppError && err.extra ? err.extra : {}) });
+};
