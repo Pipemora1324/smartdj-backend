@@ -8,6 +8,15 @@ export const REQUIRED_SCHEMA = {
   song_requests: ['id', 'establishment_id', 'guest_name', 'title', 'artist', 'genre', 'bpm', 'musical_key', 'status', 'ai_reason', 'bridge_sequence', 'created_at', 'evaluated_at'],
 };
 export const REQUIRED_TYPES = ['venue_kind', 'request_status'];
+// Columnas de funciones nuevas: si faltan, el código sigue funcionando sin ellas (y avisa qué migración correr).
+export const OPTIONAL_COLUMNS = {
+  'song_requests.external_id': '004_canciones_buscador.sql',
+  'song_requests.artwork_url': '004_canciones_buscador.sql',
+  'song_requests.preview_url': '004_canciones_buscador.sql',
+};
+const presentColumns = new Set();
+// true si la columna existe (según la última verificación al arrancar).
+export const hasColumn = (key) => presentColumns.has(key);
 
 // Compara lo requerido con las filas de information_schema.columns ({table_name, column_name}).
 export const findMissing = (columnRows, typeNames, required = REQUIRED_SCHEMA, requiredTypes = REQUIRED_TYPES) => {
@@ -28,6 +37,10 @@ export const checkSchema = async () => {
       `SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ANY($1)`,
       [Object.keys(REQUIRED_SCHEMA)]);
     const types = await query(`SELECT typname FROM pg_type WHERE typname = ANY($1)`, [REQUIRED_TYPES]);
+    presentColumns.clear();
+    for (const r of columns.rows) presentColumns.add(`${r.table_name}.${r.column_name}`);
+    const pendingFiles = [...new Set(Object.entries(OPTIONAL_COLUMNS).filter(([key]) => !presentColumns.has(key)).map(([, file]) => file))];
+    if (pendingFiles.length) console.warn(`Migraciones pendientes (la app funciona, con menos datos): ${pendingFiles.join(', ')}.`);
     const missing = findMissing(columns.rows, types.rows.map((r) => r.typname));
     if (missing.length) {
       console.error(`Esquema incompleto en la base de datos: falta ${missing.join(', ')}. Ejecuta en orden los archivos de database/migrations/ (ver README).`);
