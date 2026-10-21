@@ -21,7 +21,8 @@ def main():
     else:
         log.info('AI_GRPC_PORT no está definido: solo se inicia la API HTTP')
     try:
-        uvicorn.run('app.main:app', host='0.0.0.0', port=int(os.environ.get('AI_HTTP_PORT', '8000')))
+        # AI_BIND_HOST=127.0.0.1 deja la API solo para el propio contenedor (contenedor combinado).
+        uvicorn.run('app.main:app', host=os.environ.get('AI_BIND_HOST', '0.0.0.0'), port=int(os.environ.get('AI_HTTP_PORT', '8000')))
     finally:
         if grpc_server:
             grpc_server.stop(grace=5)

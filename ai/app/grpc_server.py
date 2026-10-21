@@ -76,11 +76,13 @@ class CompatibilityService(pb2_grpc.CompatibilityServiceServicer):
         yield event(Event.RESULT, result['reason'], result=to_result(result))
 
 
-def create_server(port, max_workers=10):
-    """Crea el servidor sin iniciarlo. Devuelve (server, puerto_real); con port=0 elige uno libre."""
+def create_server(port, max_workers=10, host=None):
+    """Crea el servidor sin iniciarlo. Devuelve (server, puerto_real); con port=0 elige uno libre.
+    host: AI_BIND_HOST o todas las interfaces; en el contenedor combinado es 127.0.0.1."""
+    host = host or os.environ.get('AI_BIND_HOST', '[::]')
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
     pb2_grpc.add_CompatibilityServiceServicer_to_server(CompatibilityService(), server)
-    bound = server.add_insecure_port(f'[::]:{port}')
+    bound = server.add_insecure_port(f'{host}:{port}')
     return server, bound
 
 
