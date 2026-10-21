@@ -130,6 +130,22 @@ npm test                                      # pruebas del cliente gRPC y de la
 cd ../ai && python -m unittest discover -s tests   # pruebas del servidor gRPC
 ```
 
+## Diagnóstico de errores (bloque A)
+
+Al arrancar, el backend deja en el log:
+- **`Esquema de la base de datos verificado.`**, o qué tabla, columna o tipo falta. En ese caso, ejecuta en orden los archivos de `database/migrations/`.
+- **`Motor de IA conectado por gRPC…`**, o un aviso si `AI_GRPC_URL` apunta a un motor que no responde.
+
+Cada error 5xx se registra con método, ruta, mensaje y stack. De Postgres solo se registran `code`, `table`, `column` y `constraint`, nunca el `detail`, que puede traer datos. Los 4xx van en una sola línea.
+
+| Síntoma | Causa | Qué hacer |
+| --- | --- | --- |
+| `403 Origen no permitido por CORS` y en el log `CORS rechazó el origen …` | La URL del frontend no está en la lista permitida | Agrégala a `CORS_ORIGIN`, separada por comas |
+| `503 … no pudimos ponerla en la cola` y `No se pudo encolar la petición` | Redis no responde o se agotó la cuota de Upstash | Revisa `REDIS_URL` y el uso en el panel de Upstash |
+| `500` con `code=42P01` / `42703` en el log | Falta una tabla o columna | Corre las migraciones pendientes en Supabase |
+
+Antes, con Redis caído la petición se quedaba colgada y un origen rechazado respondía 500. Ahora la app usa una conexión a Redis que falla en segundos y el worker de BullMQ tiene la suya propia. Con la cola vacía, el worker consulta Redis cada 60 s en lugar de cada 5 s, para no agotar la cuota gratis de Upstash.
+
 ## CORS
 
 Solo se aceptan los orígenes de `knownOrigins` en `backend/src/config.js` y los que se agreguen en `CORS_ORIGIN` (separados por coma). Para un nuevo dominio del frontend, agrégalo a `CORS_ORIGIN`.
