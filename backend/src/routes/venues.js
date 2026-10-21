@@ -3,7 +3,7 @@ import { listLimit, requestStatusSchema, trackSearchSchema, uuidParam, venuePatc
 import { rateLimit } from 'express-rate-limit'; import { searchCatalog } from '../music-catalog.js'; import { tagsForVenue, toPublicTrack } from '../catalog-logic.js';
 const router=Router(); router.use(requireSupabaseAuth);
 // Carga el local solo si pertenece al dueño de la sesión; si no, 404 (no se revela si existe).
-const ownedVenue=async(id,ownerId)=>{const r=await query('SELECT * FROM establishments WHERE id=$1 AND owner_id=$2',[uuidParam.parse(id),ownerId]);if(!r.rowCount)throw new AppError(404,'Establecimiento no encontrado');return r.rows[0];};
+export const ownedVenue=async(id,ownerId)=>{const r=await query('SELECT * FROM establishments WHERE id=$1 AND owner_id=$2',[uuidParam.parse(id),ownerId]);if(!r.rowCount)throw new AppError(404,'Establecimiento no encontrado');return r.rows[0];};
 router.get('/',async(req,res,next)=>{try{const r=await query('SELECT * FROM establishments WHERE owner_id=$1 ORDER BY created_at DESC',[req.user.sub]);res.json(r.rows);}catch(e){next(e);}});
 router.post('/',async(req,res,next)=>{try{const d=venueSchema.parse(req.body);const r=await query('INSERT INTO establishments(owner_id,name,kind,ambience,public_code) VALUES($1,$2,$3,$4,encode(gen_random_bytes(6),\'hex\')) RETURNING *',[req.user.sub,d.name,d.kind,d.ambience]);res.status(201).json(r.rows[0]);}catch(e){next(e);}});
 router.get('/:id/dashboard',async(req,res,next)=>{try{const venue=await ownedVenue(req.params.id,req.user.sub);const limit=listLimit.parse(req.query.limit);const requests=await query('SELECT * FROM song_requests WHERE establishment_id=$1 ORDER BY created_at DESC LIMIT $2',[venue.id,limit]);res.json({venue,requests:requests.rows});}catch(e){next(e);}});
