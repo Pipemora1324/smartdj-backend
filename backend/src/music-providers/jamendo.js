@@ -12,6 +12,9 @@ const IMAGE_HOST = /(^|\.)jamendo\.com$/i;
 // El audio va siempre por mp3l.jamendo.com: responde CORS "*" (necesario para el EQ con Web Audio)
 // y no lleva el client_id en la URL.
 export const audioUrlFor = (trackId) => (/^\d{1,12}$/.test(String(trackId)) ? `https://mp3l.jamendo.com/?trackid=${trackId}&format=mp31` : null);
+// Host de respaldo si mp3l no responde: sirve el mismo audio, pero su CORS no es fiable (ver DECISIONES_DJ.md),
+// así que la consola lo usa sin Web Audio (sin EQ).
+export const fallbackAudioUrlFor = (trackId) => (/^\d{1,12}$/.test(String(trackId)) ? `https://prod-1.storage.jamendo.com/?trackid=${trackId}&format=mp31` : null);
 export const shareUrlFor = (trackId) => (/^\d{1,12}$/.test(String(trackId)) ? `https://www.jamendo.com/track/${trackId}` : null);
 
 export const safeImageUrl = (value) => {

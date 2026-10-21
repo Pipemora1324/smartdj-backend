@@ -1,4 +1,5 @@
 // Lógica pura del catálogo de la emisora (sin base de datos ni Redis), para poder probarla aislada.
+import { fallbackAudioUrlFor } from './music-providers/jamendo.js';
 export const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const PROVIDER_NAMES = { jamendo: 'Jamendo', audius: 'Audius' };
 
@@ -42,7 +43,7 @@ export const buildTrackUpsert = (tracks) => {
 export const toPublicTrack = (row, { withAudio = true } = {}) => row && ({
   id: row.id, provider: row.provider, externalId: row.external_id, title: row.title, artist: row.artist, genre: row.genre,
   durationSeconds: row.duration_seconds, artworkUrl: row.artwork_url, energy: row.energy, bpm: Number(row.bpm) || 0, musicalKey: row.musical_key || '',
-  ...(withAudio ? { audioUrl: row.audio_url, waveform: row.waveform ?? [] } : {}),
+  ...(withAudio ? { audioUrl: row.audio_url, audioFallbackUrl: row.provider === 'jamendo' ? fallbackAudioUrlFor(row.external_id) : null, waveform: row.waveform ?? [] } : {}),
   credit: {
     artist: row.artist, title: row.title, url: row.share_url, source: PROVIDER_NAMES[row.provider] ?? row.provider,
     license: row.license_label, licenseUrl: row.license_url, nonCommercial: row.non_commercial,

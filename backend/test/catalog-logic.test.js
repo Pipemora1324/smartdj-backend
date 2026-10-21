@@ -36,8 +36,11 @@ test('la pista pública lleva crédito y licencia; sin audio cuando se pide', ()
   const track = toPublicTrack(ROW);
   assert.deepEqual(track.credit, { artist: 'Ana', title: 'Summer', url: 'https://www.jamendo.com/track/1', source: 'Jamendo', license: 'CC BY-NC 3.0', licenseUrl: 'https://creativecommons.org/licenses/by-nc/3.0/', nonCommercial: true });
   assert.equal(track.audioUrl, ROW.audio_url);
+  assert.equal(track.audioFallbackUrl, 'https://prod-1.storage.jamendo.com/?trackid=1&format=mp31');
+  assert.equal(toPublicTrack({ ...ROW, provider: 'audius' }).audioFallbackUrl, null);
   const publicTrack = toPublicTrack(ROW, { withAudio: false });
   assert.equal(publicTrack.audioUrl, undefined);
+  assert.equal(publicTrack.audioFallbackUrl, undefined);
   assert.equal(publicTrack.waveform, undefined);
   assert.equal(toPublicTrack(null), null);
 });
