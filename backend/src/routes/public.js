@@ -1,10 +1,60 @@
 import { Router } from 'express'; import { z } from 'zod'; import { query } from '../db.js'; import { requestQueue, evaluationJobOptions } from '../queue.js'; import { AppError } from '../errors.js';
 import { rateLimit } from 'express-rate-limit'; import { redis } from '../redis.js'; import { FINAL_STAGES, publishRequestEvent, readRequestStatus, statusChannel } from '../request-status.js';
+import { lookupTrack, searchTracks } from '../music-search.js'; import { hasColumn } from '../schema-check.js';
 // BPM y tonalidad son opcionales: "", null o espacios cuentan como "sin dato".
 const emptyToUndefined=(v)=>(v===null||(typeof v==='string'&&v.trim()==='')?undefined:v);
-const router=Router(); const payload=z.object({guestName:z.string().trim().min(2).max(60),title:z.string().trim().min(1).max(140),artist:z.string().trim().min(1).max(140),genre:z.string().trim().min(1).max(60),bpm:z.preprocess(emptyToUndefined,z.coerce.number().positive().max(300).optional()),musicalKey:z.preprocess(emptyToUndefined,z.string().trim().max(15).optional())});
-router.get('/venues/:code',async(req,res,next)=>{try{const r=await query('SELECT id,name,kind,ambience,public_code FROM establishments WHERE public_code=$1',[req.params.code]);if(!r.rowCount)throw new AppError(404,'Código de establecimiento inválido');res.json(r.rows[0]);}catch(e){next(e);}});
-router.post('/venues/:code/requests',async(req,res,next)=>{try{const d=payload.parse(req.body);const v=await query('SELECT id FROM establishments WHERE public_code=$1',[req.params.code]);if(!v.rowCount)throw new AppError(404,'Código de establecimiento inválido');const r=await query('INSERT INTO song_requests(establishment_id,guest_name,title,artist,genre,bpm,musical_key) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *',[v.rows[0].id,d.guestName,d.title,d.artist,d.genre,d.bpm||null,d.musicalKey||null]);await publishRequestEvent(r.rows[0].id,{stage:'queued',message:'Tu petición está en la cola.',partialScore:0}).catch((err)=>console.error('No se pudo publicar el estado inicial de la petición:',err.message));try{await requestQueue.add('evaluate',{requestId:r.rows[0].id},evaluationJobOptions);}catch(err){console.error('No se pudo encolar la petición:',err.message);throw new AppError(503,'Recibimos tu petición, pero no pudimos ponerla en la cola. Intenta de nuevo en un momento.');}res.status(202).json({id:r.rows[0].id,status:'queued',message:'Tu petición será evaluada por Smart DJ.'});}catch(e){next(e);}});
+const router=Router();
+const optionalText=(max)=>z.preprocess(emptyToUndefined,z.string().trim().min(1).max(max).optional());
+// Con trackId (buscador) los datos de la canción se vuelven a pedir a iTunes; title/artist queda para clientes viejos.
+const payload=z.object({
+  guestName:z.preprocess(emptyToUndefined,z.string().trim().min(2,'El nombre debe tener al menos 2 caracteres.').max(60,'El nombre puede tener hasta 60 caracteres.').optional()),
+  trackId:z.preprocess(emptyToUndefined,z.string().trim().regex(/^\d{1,20}$/,'La canción elegida no es válida.').optional()),
+  title:optionalText(140),artist:optionalText(140),genre:optionalText(60),
+  bpm:z.preprocess(emptyToUndefined,z.coerce.number().positive().max(300).optional()),musicalKey:z.preprocess(emptyToUndefined,z.string().trim().max(15).optional()),
+}).refine((d)=>d.trackId||(d.title&&d.artist),{message:'Elige una canción del buscador.'});
+const searchQuery=z.string({required_error:'Escribe qué canción buscas.',invalid_type_error:'Escribe qué canción buscas.'}).trim().min(2,'Escribe al menos 2 caracteres.').max(100,'La búsqueda puede tener hasta 100 caracteres.');
+const limiter=(limit,message)=>rateLimit({windowMs:60*1000,limit,standardHeaders:'draft-7',legacyHeaders:false,message:{error:message}});
+const requestLimiter=limiter(10,'Enviaste muchas peticiones seguidas. Espera un minuto.');
+const searchLimiter=limiter(30,'Hiciste muchas búsquedas seguidas. Espera un momento.');
+const SEARCH_CACHE_SECONDS=600;
+
+const findVenue=async(code)=>{
+  const r=await query('SELECT id,name,kind,ambience,public_code FROM establishments WHERE public_code=$1',[code]);
+  if(!r.rowCount)throw new AppError(404,'Código de establecimiento inválido');
+  return r.rows[0];
+};
+// Caché corta en Redis para no repetir la misma búsqueda contra iTunes; si Redis falla, se busca directo.
+const cachedSearch=async(term)=>{
+  const key=`music-search:${term.toLowerCase()}`;
+  const cached=await redis.get(key).catch(()=>null);
+  if(cached)return JSON.parse(cached);
+  const tracks=await searchTracks(term);
+  await redis.set(key,JSON.stringify(tracks),'EX',SEARCH_CACHE_SECONDS).catch(()=>{});
+  return tracks;
+};
+// Inserta la petición; las columnas de la canción solo si la migración 004 ya se aplicó.
+const insertRequest=async(venueId,guestName,song,extra)=>{
+  const columns=['establishment_id','guest_name','title','artist','genre','bpm','musical_key'];
+  const values=[venueId,guestName,song.title,song.artist,song.genre,extra.bpm||null,extra.musicalKey||null];
+  for(const [column,value] of [['external_id',song.trackId],['artwork_url',song.artworkUrl],['preview_url',song.previewUrl]]){
+    if(hasColumn(`song_requests.${column}`)){columns.push(column);values.push(value??null);}
+  }
+  const r=await query(`INSERT INTO song_requests(${columns.join(',')}) VALUES(${values.map((_,i)=>`$${i+1}`).join(',')}) RETURNING id`,values);
+  return r.rows[0];
+};
+
+router.get('/venues/:code',async(req,res,next)=>{try{res.json(await findVenue(req.params.code));}catch(e){next(e);}});
+router.get('/venues/:code/search',searchLimiter,async(req,res,next)=>{
+  try{const term=searchQuery.parse(req.query.q);await findVenue(req.params.code);res.json(await cachedSearch(term));}catch(e){next(e);}
+});
+router.post('/venues/:code/requests',requestLimiter,async(req,res,next)=>{try{
+  const d=payload.parse(req.body);
+  const venue=await findVenue(req.params.code);
+  const track=d.trackId?await lookupTrack(d.trackId):null;
+  if(d.trackId&&!track)throw new AppError(404,'No encontramos esa canción. Busca otra.');
+  const song=track??{title:d.title,artist:d.artist,genre:d.genre||'Sin género'};
+  const row=await insertRequest(venue.id,d.guestName||'Invitado',song,d);
+  await publishRequestEvent(row.id,{stage:'queued',message:'Tu petición está en la cola.',partialScore:0}).catch((err)=>console.error('No se pudo publicar el estado inicial de la petición:',err.message));try{await requestQueue.add('evaluate',{requestId:row.id},evaluationJobOptions);}catch(err){console.error('No se pudo encolar la petición:',err.message);throw new AppError(503,'Recibimos tu petición, pero no pudimos ponerla en la cola. Intenta de nuevo en un momento.');}res.status(202).json({id:row.id,status:'queued',message:'Tu petición será evaluada por Smart DJ.'});}catch(e){next(e);}});
 
 // ---------- Estado en vivo de una petición (polling y SSE) ----------
 // El id es un UUID que solo conoce quien hizo la petición; no se expone el nombre del invitado.
