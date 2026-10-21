@@ -21,3 +21,31 @@ La versión viva incluye las rutas de gRPC/SSE (`fead3c2` o posterior), pero no 
 4. Si cambiaste a `Dockerfile.combined`: Root Directory vacío, Dockerfile Path `./Dockerfile.combined`. El primer build tarda más por librosa.
 
 **Consecuencia:** mientras el backend nuevo no esté publicado, **no se sube el frontend nuevo**, porque depende de rutas que la versión vieja no tiene (`/search`, `PATCH /venues/...`). Los commits del frontend quedan listos en local.
+
+**Estado al terminar los bloques A–F:** el backend se subió completo (último commit `ec4143e`) y `/api/health` responde `ok`. Pero dos comprobaciones de solo lectura muestran que sigue viva la versión anterior:
+- `GET /api/public/venues/<código-inexistente>/search?q=ab` responde `Recurso no encontrado`; la versión nueva respondería `Código de establecimiento inválido`.
+- Un `Origin` desconocido sigue dando 500 en vez de 403.
+
+## 2. Frontend retenido en local
+
+Con el frontend nuevo y el backend viejo, pedir canciones dejaría de funcionar:
+- El buscador llama a `/search`, que no existe en la versión vieja.
+- El POST con `trackId` lo rechaza la versión vieja.
+
+Cuando Render publique el backend (las dos comprobaciones de arriba deben responder lo nuevo), sube el frontend con `git push origin main` en `smartdj-frontend`.
+
+## 3. SQL para Supabase (SQL Editor, en este orden, una sola vez)
+
+Todos los archivos son idempotentes: se pueden ejecutar de nuevo sin romper datos.
+
+1. `database/migrations/003_esquema_base.sql`: asegura los tipos y tablas base (`song_requests`, `songs`, `mix_history`).
+2. `database/migrations/004_canciones_buscador.sql`: portada, preview e id de iTunes en las peticiones.
+3. `database/migrations/005_panel_dueno.sql`: `played_at` y `status_updated_at` para "sonando" y la cola.
+
+Antes deben estar aplicadas `001` y `002`, de fases anteriores. Mientras falten 004 y 005 la app funciona igual, con menos datos, y el log lo avisa al arrancar ("Migraciones pendientes").
+
+## 4. SonarCloud: hallazgos que quedan a propósito
+
+- `backend/src/mailer.js:15` ("http inseguro"): falso positivo en `jsonTransport`, de la auth anterior que ya no se usa.
+- `smartdj-frontend/scripts/dev-static-server.mjs` (http): servidor solo para desarrollo local.
+- El análisis del frontend en SonarCloud seguirá en rojo hasta que se suba el frontend: el BLOCKER de XSS ya está corregido en local (bloque B).
