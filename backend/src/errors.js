@@ -3,7 +3,7 @@ export const notFound = (_req,res) => res.status(404).json({ error: 'Recurso no 
 
 // Texto que viene del usuario (ruta, Origin) antes de ir al log: sin saltos de línea ni caracteres de
 // control (evita falsificar líneas del log) y con largo máximo.
-export const sanitizeForLog = (value, max = 200) => String(value ?? '').replace(/[\u0000-\u001f\u007f-\u009f  ]/g, '?').slice(0, max);
+export const sanitizeForLog = (value, max = 200) => String(value ?? '').replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, '?').slice(0, max);
 
 // Campos de un error de Postgres que se pueden registrar sin exponer datos (detail puede traer valores).
 const dbFields = (err) => ['code', 'table', 'column', 'constraint', 'routine'].filter((key) => err?.[key]).map((key) => `${key}=${err[key]}`).join(' ');
