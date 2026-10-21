@@ -1,0 +1,60 @@
+// Lógica pura del reproductor y de la cola (sin base de datos), para poder probarla aislada.
+import { AppError } from './errors.js';
+
+export const MIN_QUEUE = 5;
+export const RECENT_LIMIT = 30;
+
+// Posición viva: la guardada más lo que lleva sonando desde started_at.
+export const livePosition = (state, now = Date.now()) => {
+  const base = Number(state?.position_seconds) || 0;
+  if (state?.status !== 'playing' || !state.started_at) return base;
+  return Math.max(0, Math.round((base + (now - new Date(state.started_at).getTime()) / 1000) * 100) / 100);
+};
+
+// Nuevo orden de la cola: debe traer exactamente los mismos ids, sin repetir.
+export const reorderPositions = (currentIds, orderIds) => {
+  const current = new Set(currentIds);
+  if (orderIds.length !== current.size || new Set(orderIds).size !== orderIds.length || !orderIds.every((id) => current.has(id))) {
+    throw new AppError(409, 'La cola cambió mientras la reordenabas. Vuelve a intentarlo.');
+  }
+  return orderIds.map((id, index) => ({ id, position: index + 1 }));
+};
+
+// Dónde intercalar una petición aceptada: después de la siguiente pista (ya puede estar precargada)
+// y nunca junto a otra petición, para que la emisora no se vuelva solo peticiones.
+export const requestInsertIndex = (queue) => {
+  let index = Math.min(1, queue.length);
+  const isRequest = (i) => queue[i]?.source === 'request';
+  while (index <= queue.length && (isRequest(index - 1) || isRequest(index))) index += 1;
+  return Math.min(index, queue.length);
+};
+
+// Inserta en la posición index y devuelve el nuevo orden de ids (para renumerar 1..n).
+export const insertAt = (ids, index, id) => [...ids.slice(0, index), id, ...ids.slice(index)];
+
+// Energía objetivo por tipo de local (1 muy tranquila … 5 muy enérgica); la misma tabla que usa el motor.
+export const VENUE_ENERGY = { restaurant: [2, 3], cafe: [2, 3], lounge: [2, 3], salsa_bar: [3, 4], nightclub: [4, 5], other: [3, 3] };
+
+// Respaldo sin el motor: misma familia de géneros del local, energía cercana a la del local y sin repetir
+// pistas ni artistas recientes. random permite pruebas deterministas.
+export const pickFallback = ({ candidates, venueKind, venueTags = [], recentIds = [], recentArtists = [], random = Math.random }) => {
+  const recent = new Set(recentIds);
+  const artists = new Set(recentArtists.map((a) => String(a).toLowerCase()));
+  const tags = new Set(venueTags.map((t) => t.toLowerCase()));
+  const [low, high] = VENUE_ENERGY[venueKind] ?? VENUE_ENERGY.other;
+  const fresh = candidates.filter((c) => !recent.has(c.id));
+  if (!fresh.length) return null;
+  const score = (c) => {
+    const energy = Number(c.energy) || 0;
+    const energyFit = !energy ? 0.5 : energy >= low && energy <= high ? 1 : Math.max(0, 1 - Math.min(Math.abs(energy - low), Math.abs(energy - high)) / 2);
+    return (tags.has(String(c.genre).toLowerCase()) ? 1 : 0) + energyFit - (artists.has(String(c.artist).toLowerCase()) ? 0.6 : 0) + random() * 0.3;
+  };
+  return fresh.map((c) => ({ c, s: score(c) })).sort((a, b) => b.s - a.s)[0].c;
+};
+
+// Transición por defecto cuando no la sugiere el motor: crossfade fijo y salida antes del final.
+export const defaultTransition = (durationSeconds, crossfadeSeconds = 8) => {
+  const duration = Number(durationSeconds) || 0;
+  const crossfade = Math.min(Number(crossfadeSeconds) || 0, Math.max(0, duration / 4));
+  return { transitionAtSeconds: Math.max(0, Math.round((duration - crossfade - 1) * 100) / 100), crossfadeSeconds: Math.round(crossfade * 100) / 100 };
+};
