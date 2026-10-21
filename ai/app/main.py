@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional
-import tempfile, os, requests, librosa, numpy as np
+import tempfile, os, requests
 from app.engine import evaluate
 
 app = FastAPI(title='Smart DJ Engine', version='1.0.0')
@@ -17,6 +17,11 @@ def compatibility(data: Compatibility):
     return evaluate(data.venue_type,data.current_genre,data.requested_genre,data.current_bpm,data.requested_bpm,data.current_key,data.requested_key)
 @app.post('/analyze')
 def analyze(payload: Analysis):
+    # Analizar audio con librosa usa unos 400 MB: se importa solo aquí y se puede apagar con
+    # AI_ENABLE_ANALYZE=false (el contenedor combinado de Render gratis lo apaga).
+    if os.environ.get('AI_ENABLE_ANALYZE', 'true').lower() != 'true':
+        raise HTTPException(503, detail='El análisis de audio está desactivado en este despliegue.')
+    import librosa, numpy as np
     try:
         response=requests.get(payload.audio_url,timeout=15); response.raise_for_status()
         suffix='.audio'; f=tempfile.NamedTemporaryFile(delete=False,suffix=suffix); f.write(response.content); f.close()
