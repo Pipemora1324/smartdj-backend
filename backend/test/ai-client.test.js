@@ -31,6 +31,10 @@ before(async () => {
       call.write({ request_id: call.request.request_id, stage: 'RESULT', message: RESULT.reason, result: RESULT });
       call.end();
     },
+    SuggestNext(call, callback) {
+      const [first] = call.request.candidates;
+      callback(null, { track_id: first?.id ?? '', score: 80, reason: `Siguiente después de ${call.request.current?.id || 'nada'}.`, transition_at_seconds: 190, crossfade_seconds: 8 });
+    },
   });
   const port = await new Promise((resolve, reject) => server.bindAsync('127.0.0.1:0', grpc.ServerCredentials.createInsecure(), (e, p) => (e ? reject(e) : resolve(p))));
   Object.assign(process.env, {
@@ -78,4 +82,9 @@ test('sin servidor responde 503 (UNAVAILABLE)', async () => {
   const { toAppError } = client;
   const err = toAppError({ code: grpc.status.UNAVAILABLE, details: 'connect ECONNREFUSED' });
   assert.equal(err.status, 503);
+});
+
+test('SuggestNext devuelve la pista elegida por el motor', async () => {
+  const result = await client.suggestNext({ venue_type: 'cafe', current: { id: 'now', energy: 2 }, candidates: [{ id: 'a', energy: 3 }], recent_ids: [], recent_artists: [] });
+  assert.deepEqual(result, { track_id: 'a', score: 80, reason: 'Siguiente después de now.', transition_at_seconds: 190, crossfade_seconds: 8 });
 });

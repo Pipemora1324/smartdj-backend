@@ -88,3 +88,11 @@ export const streamEvaluation = async (requestId, request, onEvent, { timeoutMs 
     });
   });
 };
+
+// AutoDJ: siguiente pista de la emisora (rpc SuggestNext). request usa los nombres del proto.
+export const suggestNext = async (request, { timeoutMs = config.aiGrpcTimeoutMs } = {}) => {
+  await ensureConnected();
+  return new Promise((resolve, reject) => {
+    getClient().SuggestNext(request, { deadline: deadlineIn(timeoutMs) }, (err, result) => (err ? reject(toAppError(err)) : resolve(result)));
+  });
+};
