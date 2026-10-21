@@ -3,17 +3,26 @@ import axios from 'axios';
 import { redis, createWorkerConnection } from './redis.js';
 import { query } from './db.js';
 import { config } from './config.js';
+import { hasColumn } from './schema-check.js';
 import { grpcEnabled, streamEvaluation } from './ai-client.js';
 import { publishRequestEvent, toLiveEvent } from './request-status.js';
 export const requestQueue = new Queue('music-requests', { connection: redis });
 export const evaluationJobOptions = { attempts: 3, backoff: { type: 'exponential', delay: 2000 }, removeOnComplete: 100, removeOnFail: 100 };
 
 // Datos de la evaluación con los nombres del proto. bpm llega de Postgres (NUMERIC) como texto.
-const toEvaluationRequest = (item, data) => ({
-  venue_type: item.venue_kind, current_genre: data.currentGenre || 'Pop', requested_genre: item.genre,
-  current_bpm: Number(data.currentBpm) || 120, requested_bpm: Number(item.bpm) || 120,
-  current_key: data.currentKey || 'C', requested_key: item.musical_key || 'C',
+// current: la canción que suena en el local (o null). 0 y '' significan "dato desconocido" para el motor.
+export const toEvaluationRequest = (item, current) => ({
+  venue_type: item.venue_kind, current_genre: current?.genre || '', requested_genre: item.genre,
+  current_bpm: Number(current?.bpm) || 0, requested_bpm: Number(item.bpm) || 0,
+  current_key: current?.musical_key || '', requested_key: item.musical_key || '',
 });
+
+// La canción que suena ahora en el local: la última marcada como sonada.
+const currentSong = async (venueId) => {
+  const order = hasColumn('song_requests.played_at') ? 'played_at DESC NULLS LAST, evaluated_at DESC' : 'evaluated_at DESC NULLS LAST';
+  const r = await query(`SELECT genre, bpm, musical_key FROM song_requests WHERE establishment_id=$1 AND status='played' ORDER BY ${order} LIMIT 1`, [venueId]);
+  return r.rows[0] || null;
+};
 
 // Respaldo sin gRPC (AI_GRPC_URL vacío): una sola llamada HTTP, sin etapas intermedias.
 const evaluateOverHttp = async (requestId, request) => {
@@ -27,7 +36,7 @@ const worker = new Worker('music-requests', async job => {
   const r = await query('SELECT r.*, e.kind AS venue_kind FROM song_requests r JOIN establishments e ON e.id=r.establishment_id WHERE r.id=$1',[job.data.requestId]);
   if (!r.rowCount) return;
   const item=r.rows[0];
-  const request = toEvaluationRequest(item, job.data);
+  const request = toEvaluationRequest(item, await currentSong(item.establishment_id));
   const ai = grpcEnabled()
     ? await streamEvaluation(item.id, request, (event) => publishRequestEvent(item.id, toLiveEvent(event)))
     : await evaluateOverHttp(item.id, request);
