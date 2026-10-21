@@ -37,7 +37,7 @@ try {
     console.log('');
   }
   try {
-    await unary({ ...cases[0].request, requested_bpm: 0 });
+    await unary({ ...cases[0].request, requested_bpm: -5 });
     console.log('[error] se esperaba INVALID_ARGUMENT y no llegó');
     process.exitCode = 1;
   } catch (err) {
