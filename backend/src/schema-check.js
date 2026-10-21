@@ -13,6 +13,8 @@ export const OPTIONAL_COLUMNS = {
   'song_requests.external_id': '004_canciones_buscador.sql',
   'song_requests.artwork_url': '004_canciones_buscador.sql',
   'song_requests.preview_url': '004_canciones_buscador.sql',
+  'song_requests.played_at': '005_panel_dueno.sql',
+  'song_requests.status_updated_at': '005_panel_dueno.sql',
 };
 const presentColumns = new Set();
 // true si la columna existe (según la última verificación al arrancar).
