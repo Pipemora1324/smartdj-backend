@@ -7,6 +7,7 @@ import { findCachedTrack } from '../music-catalog.js';
 import { advanceSchema, claimSchema, pauseSchema, playSchema, playerSettingsSchema, queueAddSchema, queueOrderSchema, skipSchema, uuidParam } from '../owner-validation.js';
 import { advance, claimConsole, enqueue, pause, play, playerSnapshot, removeFromQueue, reorderQueue, updateSettings } from '../player.js';
 import { ownedVenue } from './venues.js';
+import { ensureQueue } from '../autodj.js';
 
 // Reproductor de la emisora de un local (/api/venues/:id/player). Solo el dueño del local.
 const router = Router({ mergeParams: true });
@@ -21,23 +22,25 @@ router.use(requireSupabaseAuth, playerLimiter, async (req, _res, next) => {
 
 // Después de cada cambio se responde con la foto completa, para que la consola no tenga que pedirla otra vez.
 const reply = async (req, res, extra = {}) => res.json({ ...(await playerSnapshot(req.venue.id)), ...extra });
+// Acciones que pueden dejar la cola corta: el AutoDJ la rellena antes de responder (no hace nada en modo manual).
+const refillAndReply = async (req, res, extra) => { await ensureQueue(req.venue); await reply(req, res, extra); };
 const handle = (fn) => async (req, res, next) => { try { await fn(req, res); } catch (e) { next(e); } };
 
-router.get('/', handle((req, res) => reply(req, res)));
+router.get('/', handle((req, res) => refillAndReply(req, res)));
 router.post('/claim', handle(async (req, res) => { await claimConsole(req.venue.id, claimSchema.parse(req.body).consoleId); await reply(req, res); }));
 router.post('/play', handle(async (req, res) => { await play(req.venue.id, playSchema.parse(req.body ?? {})); await reply(req, res); }));
 router.post('/pause', handle(async (req, res) => { await pause(req.venue.id, pauseSchema.parse(req.body ?? {})); await reply(req, res); }));
 router.post('/skip', handle(async (req, res) => {
   const d = skipSchema.parse(req.body ?? {});
   const advanced = await advance(req.venue.id, { consoleId: d.consoleId, fromTrackId: d.fromTrackId, reason: d.reason });
-  await reply(req, res, { advanced });
+  await refillAndReply(req, res, { advanced });
 }));
 router.post('/advance', handle(async (req, res) => {
   const d = advanceSchema.parse(req.body ?? {});
   const advanced = await advance(req.venue.id, { consoleId: d.consoleId, fromTrackId: d.fromTrackId, reason: 'ended' });
-  await reply(req, res, { advanced });
+  await refillAndReply(req, res, { advanced });
 }));
-router.patch('/', handle(async (req, res) => { await updateSettings(req.venue.id, playerSettingsSchema.parse(req.body ?? {})); await reply(req, res); }));
+router.patch('/', handle(async (req, res) => { await updateSettings(req.venue.id, playerSettingsSchema.parse(req.body ?? {})); await refillAndReply(req, res); }));
 router.post('/queue', handle(async (req, res) => {
   const d = queueAddSchema.parse(req.body ?? {});
   const track = await findCachedTrack(d.provider, d.externalId);
@@ -47,6 +50,6 @@ router.post('/queue', handle(async (req, res) => {
   await reply(req, res);
 }));
 router.patch('/queue', handle(async (req, res) => { await reorderQueue(req.venue.id, queueOrderSchema.parse(req.body ?? {}).order); await reply(req, res); }));
-router.delete('/queue/:itemId', handle(async (req, res) => { await removeFromQueue(req.venue.id, uuidParam.parse(req.params.itemId)); await reply(req, res); }));
+router.delete('/queue/:itemId', handle(async (req, res) => { await removeFromQueue(req.venue.id, uuidParam.parse(req.params.itemId)); await refillAndReply(req, res); }));
 
 export default router;
