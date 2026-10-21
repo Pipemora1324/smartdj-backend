@@ -1,6 +1,6 @@
 import { Queue, Worker } from 'bullmq';
 import axios from 'axios';
-import { redis } from './redis.js';
+import { redis, createWorkerConnection } from './redis.js';
 import { query } from './db.js';
 import { config } from './config.js';
 import { grpcEnabled, streamEvaluation } from './ai-client.js';
@@ -33,7 +33,12 @@ const worker = new Worker('music-requests', async job => {
     : await evaluateOverHttp(item.id, request);
   await query('UPDATE song_requests SET status=$1, ai_reason=$2, bridge_sequence=$3, evaluated_at=NOW() WHERE id=$4',[ai.accepted?'accepted':'bridging',ai.reason,JSON.stringify(ai.bridge_sequence),item.id]);
   await redis.publish(`venue:${item.establishment_id}`, JSON.stringify({type:'request_evaluated', requestId:item.id, result:ai}));
-}, { connection: redis });
+}, {
+  connection: createWorkerConnection(),
+  // Con la cola vacía, BullMQ consulta Redis en bucle. drainDelay (segundos) y stalledInterval (ms) más largos
+  // bajan de ~20.000 a ~1.700 comandos al día, para no agotar la cuota del plan gratis de Upstash.
+  drainDelay: 60, stalledInterval: 300000,
+});
 
 // Si se agotan los reintentos, el navegador recibe un estado final de error en lugar de quedarse esperando.
 worker.on('failed', (job, err) => {
