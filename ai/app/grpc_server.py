@@ -56,15 +56,15 @@ class CompatibilityService(pb2_grpc.CompatibilityServiceServicer):
 
         yield event(Event.QUEUED, 'Petición recibida por el motor de compatibilidad.')
         stage_values = stage_scores(c.venue_type, c.current_genre, c.requested_genre, c.current_bpm, c.requested_bpm, c.current_key, c.requested_key)
-        against = c.current_genre if normalize(c.current_genre) else 'el ambiente del local'
+        against = f'a {c.current_genre}' if normalize(c.current_genre) else 'al ambiente del local'
         bpm_text = lambda v: f'{round(v)} BPM' if v else 'BPM desconocido'
         steps = [
             (Event.ANALYZING_GENRE, 'genre', lambda: stage_values['genre'],
-             lambda s: f'Analizando el género: {c.requested_genre or "sin género"} frente a {against} ({round(s * 100)}%).'),
+             lambda s: f'Analizando el género: {c.requested_genre or "sin género"} frente {against} ({round(s * 100)}%).'),
             (Event.ANALYZING_BPM, 'bpm', lambda: stage_values['bpm'],
              lambda s: f'Analizando el tempo: {bpm_text(c.requested_bpm)} frente a {bpm_text(c.current_bpm)} ({round(s * 100)}%).'),
             (Event.ANALYZING_KEY, 'key', lambda: stage_values['key'],
-             lambda s: f'Analizando la tonalidad: {c.requested_key or "?"} sobre {c.current_key or "?"} ({round(s * 100)}%).'),
+             lambda s: (f'Analizando la tonalidad: {c.requested_key} sobre {c.current_key} ({round(s * 100)}%).' if c.requested_key and c.current_key else f'Analizando la tonalidad: tonalidad desconocida ({round(s * 100)}%).')),
         ]
         scores = {}
         for stage, name, compute, describe in steps:
