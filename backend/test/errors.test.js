@@ -2,7 +2,7 @@
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { z } from 'zod';
-import { AppError, errorHandler } from '../src/errors.js';
+import { AppError, errorHandler, sanitizeForLog } from '../src/errors.js';
 
 let logs;
 const original = { error: console.error, warn: console.warn };
@@ -45,6 +45,15 @@ test('JSON inválido responde 400 en español', () => {
   const res = run(Object.assign(new SyntaxError('Unexpected end of JSON input'), { type: 'entity.parse.failed', status: 400 }));
   assert.equal(res.statusCode, 400);
   assert.equal(res.body.error, 'El cuerpo de la petición no es un JSON válido.');
+});
+
+test('limpia saltos de línea y caracteres de control antes de registrar', () => {
+  assert.equal(sanitizeForLog('/a\r\n[500] falso'), '/a??[500] falso');
+  assert.equal(sanitizeForLog('x'.repeat(300)).length, 200);
+  assert.equal(sanitizeForLog(undefined), '');
+  const res = { status() { return this; }, json() { return this; } };
+  errorHandler(new AppError(404, 'No existe'), { method: 'GET', baseUrl: '', path: '/x\n[200] OK' }, res, () => {});
+  assert.doesNotMatch(logs.warn[0], /\n/);
 });
 
 test('un AppError conserva estado, mensaje y extra', () => {
