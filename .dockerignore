@@ -1,0 +1,13 @@
+# Contexto del build combinado (Dockerfile.combined en la raíz).
+# Nunca enviar secretos ni dependencias locales a la imagen.
+.env
+.env.*
+!.env.example
+**/.env
+**/node_modules
+**/__pycache__
+**/*.pyc
+.git
+.claude
+**/tests
+**/test
