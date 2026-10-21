@@ -175,6 +175,15 @@ Todas las rutas requieren el token de Supabase. Cada `:id` se valida como UUID y
 - El panel del frontend se actualiza por polling cada 5 s. No usa SSE porque `EventSource` no puede enviar el token `Bearer`.
 - La migración `005_panel_dueno.sql` agrega `played_at` y `status_updated_at`. Mientras no se aplique, los cambios de estado funcionan igual, solo que sin esas fechas.
 
+## Interfaz de DJ del link público (bloque D)
+
+- **`GET /api/public/venues/:code/now`**: devuelve `{ nowPlaying, queue }`.
+  - `nowPlaying` es la última petición marcada como `played` (por `played_at`).
+  - `queue` son hasta 10 `accepted`, en el orden en que se aceptaron.
+  - Cada canción trae `title`, `artist`, `genre`, `artworkUrl` y `previewUrl`, **sin nombres de invitados**.
+  - Rate limit de 120 por minuto por IP.
+- Sin la migración 005, se ordena por `evaluated_at`.
+
 ## CORS
 
 Solo se aceptan los orígenes de `knownOrigins` en `backend/src/config.js` y los que se agreguen en `CORS_ORIGIN` (separados por coma). Para un nuevo dominio del frontend, agrégalo a `CORS_ORIGIN`.
