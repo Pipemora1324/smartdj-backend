@@ -46,11 +46,13 @@ export const pickFallback = ({ candidates, venueKind, venueTags = [], recentIds 
   const fresh = candidates.filter((c) => !recent.has(c.id));
   const pool = fresh.length ? fresh : candidates;
   if (!pool.length) return null;
-  const score = (c) => {
-    const energy = Number(c.energy) || 0;
-    const energyFit = !energy ? 0.5 : energy >= low && energy <= high ? 1 : Math.max(0, 1 - Math.min(Math.abs(energy - low), Math.abs(energy - high)) / 2);
-    return (tags.has(String(c.genre).toLowerCase()) ? 1 : 0) + energyFit - (artists.has(String(c.artist).toLowerCase()) ? 0.6 : 0) + random() * 0.3;
+  const energyFit = (energy) => {
+    if (!energy) return 0.5;
+    if (energy >= low && energy <= high) return 1;
+    return Math.max(0, 1 - Math.min(Math.abs(energy - low), Math.abs(energy - high)) / 2);
   };
+  const score = (c) => (tags.has(String(c.genre).toLowerCase()) ? 1 : 0) + energyFit(Number(c.energy) || 0)
+    - (artists.has(String(c.artist).toLowerCase()) ? 0.6 : 0) + random() * 0.3;
   return pool.map((c) => ({ c, s: score(c) })).sort((a, b) => b.s - a.s)[0].c;
 };
 

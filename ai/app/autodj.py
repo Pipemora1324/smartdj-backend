@@ -69,7 +69,7 @@ def score_candidate(venue_type, current, candidate, recent_artists):
     return max(0.0, score), parts, repeated
 
 
-def describe(venue_type, current, candidate, parts, repeated):
+def describe(current, candidate, parts, repeated):
     """Razón en español con lo que más pesó en la elección."""
     reasons = []
     if parts['energy'] >= 1 and candidate.get('energy'):
@@ -112,7 +112,7 @@ def suggest_next(venue_type, current, candidates, recent_ids=(), recent_artists=
     return {
         'track_id': chosen['id'],
         'score': round(score * 100),
-        'reason': describe(venue_type, current, chosen, parts, repeated),
+        'reason': describe(current, chosen, parts, repeated),
         'transition_at_seconds': transition_point(duration, crossfade),
         'crossfade_seconds': crossfade,
     }
