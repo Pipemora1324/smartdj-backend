@@ -1,7 +1,7 @@
 // Pruebas de las validaciones del panel del dueño.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { listLimit, requestStatusSchema, uuidParam, venuePatchSchema, venueSchema } from '../src/owner-validation.js';
+import { listLimit, requestStatusSchema, trackSearchSchema, uuidParam, venuePatchSchema, venueSchema } from '../src/owner-validation.js';
 
 const message = (fn) => { try { fn(); return null; } catch (e) { return e.issues[0].message; } };
 
@@ -30,4 +30,17 @@ test('el límite de la lista va de 1 a 100 con 50 por defecto', () => {
   assert.equal(listLimit.parse(undefined), 50);
   assert.equal(listLimit.parse('20'), 20);
   assert.ok(message(() => listLimit.parse('500')));
+});
+
+test('el buscador de pistas valida texto, género y proveedor', () => {
+  assert.deepEqual(trackSearchSchema.parse({}), { q: '', genre: '', provider: 'jamendo' });
+  assert.deepEqual(trackSearchSchema.parse({ q: ' lounge ', genre: 'Jazz', provider: 'audius' }), { q: 'lounge', genre: 'jazz', provider: 'audius' });
+  assert.throws(() => trackSearchSchema.parse({ provider: 'spotify' }), /jamendo o audius/);
+  assert.throws(() => trackSearchSchema.parse({ genre: 'rock<script>' }), /género no es válido/);
+  assert.throws(() => trackSearchSchema.parse({ q: 'x'.repeat(101) }), /100 caracteres/);
+});
+
+test('el local puede excluir las pistas no comerciales', () => {
+  assert.deepEqual(venuePatchSchema.parse({ exclude_non_commercial: true }), { exclude_non_commercial: true });
+  assert.throws(() => venuePatchSchema.parse({ exclude_non_commercial: 'si' }), /true o false/);
 });
