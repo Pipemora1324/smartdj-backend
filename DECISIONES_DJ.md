@@ -58,6 +58,10 @@ Petición HEAD y GET con `Range: bytes=0-1023`, con `Origin` de Vercel y de `loc
 - La consola carga el `<audio>` con `crossOrigin="anonymous"`.
 - **Respaldo por deck:** si una pista no carga con CORS, se reintenta sin `crossOrigin`. Ese deck no pasa por Web Audio: el crossfade se hace con `audio.volume` y el EQ se desactiva, con un aviso.
 - **Sin proxy de audio:** en Render gratis, todo el audio pasaría por el servidor.
+- **Host de respaldo** (observado en las pruebas del 2026-10-21: `mp3l` dejó de responder durante un rato mientras `prod-1` seguía funcionando):
+  - La API también entrega `audioFallbackUrl`, que apunta a `prod-1`.
+  - La consola prueba en este orden: `mp3l` con Web Audio, un reintento y después `prod-1` sin Web Audio (sin EQ). Si nada funciona, salta la pista.
+  - La siguiente pista se verifica mientras se precarga, no cuando ya le toca sonar.
 
 ### c) Términos de uso
 
