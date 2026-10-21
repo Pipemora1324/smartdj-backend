@@ -16,6 +16,7 @@ const searchQuery=z.string({required_error:'Escribe qué canción buscas.',inval
 const limiter=(limit,message)=>rateLimit({windowMs:60*1000,limit,standardHeaders:'draft-7',legacyHeaders:false,message:{error:message}});
 const requestLimiter=limiter(10,'Enviaste muchas peticiones seguidas. Espera un minuto.');
 const searchLimiter=limiter(30,'Hiciste muchas búsquedas seguidas. Espera un momento.');
+const nowLimiter=limiter(120,'Demasiadas consultas. Espera un momento.');
 const SEARCH_CACHE_SECONDS=600;
 
 const findVenue=async(code)=>{
@@ -44,6 +45,20 @@ const insertRequest=async(venueId,guestName,song,extra)=>{
 };
 
 router.get('/venues/:code',async(req,res,next)=>{try{res.json(await findVenue(req.params.code));}catch(e){next(e);}});
+// Interfaz de DJ del link público: lo que suena (última marcada como sonada) y la cola de aceptadas.
+// Sin nombres de invitados. Sin la migración 005 se ordena por evaluated_at.
+const NOW_QUEUE_LIMIT=10;
+const publicSong=(r)=>({id:r.id,title:r.title,artist:r.artist,genre:r.genre,artworkUrl:r.artwork_url??null,previewUrl:r.preview_url??null});
+router.get('/venues/:code/now',nowLimiter,async(req,res,next)=>{try{
+  const venue=await findVenue(req.params.code);
+  const playedOrder=hasColumn('song_requests.played_at')?'played_at DESC NULLS LAST, evaluated_at DESC':'evaluated_at DESC NULLS LAST, created_at DESC';
+  const queueOrder=hasColumn('song_requests.status_updated_at')?'COALESCE(status_updated_at, evaluated_at, created_at)':'COALESCE(evaluated_at, created_at)';
+  const [playing,queue]=await Promise.all([
+    query(`SELECT * FROM song_requests WHERE establishment_id=$1 AND status='played' ORDER BY ${playedOrder} LIMIT 1`,[venue.id]),
+    query(`SELECT * FROM song_requests WHERE establishment_id=$1 AND status='accepted' ORDER BY ${queueOrder} ASC LIMIT $2`,[venue.id,NOW_QUEUE_LIMIT]),
+  ]);
+  res.json({nowPlaying:playing.rows[0]?{...publicSong(playing.rows[0]),playedAt:playing.rows[0].played_at??playing.rows[0].evaluated_at}:null,queue:queue.rows.map(publicSong)});
+}catch(e){next(e);}});
 router.get('/venues/:code/search',searchLimiter,async(req,res,next)=>{
   try{const term=searchQuery.parse(req.query.q);await findVenue(req.params.code);res.json(await cachedSearch(term));}catch(e){next(e);}
 });
