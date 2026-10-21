@@ -12,6 +12,13 @@ NODE_PID=""
 stop_all() {
   [ -n "$NODE_PID" ] && kill -TERM "$NODE_PID" 2>/dev/null
   [ -n "$AI_PID" ] && kill -TERM "$AI_PID" 2>/dev/null
+  # Espera hasta 10 s a que terminen solos; después los fuerza (Node no sale con SIGTERM mientras BullMQ mantiene Redis abierto).
+  for ((j = 0; j < 10; j++)); do
+    kill -0 "$NODE_PID" 2>/dev/null || kill -0 "$AI_PID" 2>/dev/null || break
+    sleep 1
+  done
+  [ -n "$NODE_PID" ] && kill -KILL "$NODE_PID" 2>/dev/null
+  [ -n "$AI_PID" ] && kill -KILL "$AI_PID" 2>/dev/null
   wait 2>/dev/null
 }
 # Render envía SIGTERM al apagar: se reenvía a ambos procesos.
