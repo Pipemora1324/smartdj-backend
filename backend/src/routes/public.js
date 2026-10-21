@@ -44,7 +44,7 @@ const insertRequest=async(venueId,guestName,song,extra)=>{
   return r.rows[0];
 };
 
-router.get('/venues/:code',async(req,res,next)=>{try{res.json(await findVenue(req.params.code));}catch(e){next(e);}});
+router.get('/venues/:code',nowLimiter,async(req,res,next)=>{try{res.json(await findVenue(req.params.code));}catch(e){next(e);}});
 // Interfaz de DJ del link público: lo que suena (última marcada como sonada) y la cola de aceptadas.
 // Sin nombres de invitados. Sin la migración 005 se ordena por evaluated_at.
 const NOW_QUEUE_LIMIT=10;
