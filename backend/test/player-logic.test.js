@@ -53,3 +53,11 @@ test('convierte una pista guardada en datos para el motor', async () => {
     { id: 'u1', genre: 'lounge', bpm: 120.5, key: '', energy: 3, duration_seconds: 200, artist: 'Ana' });
   assert.equal(toFeatures(null), undefined);
 });
+
+test('a la página pública solo llega el tipo de aviso', async () => {
+  const { toPublicEvent } = await import('../src/player-logic.js');
+  assert.deepEqual(toPublicEvent(JSON.stringify({ type: 'request_evaluated', requestId: 'x', result: { reason: 'secreto' } })), { type: 'request_evaluated' });
+  assert.equal(toPublicEvent('no es json'), null);
+  assert.equal(toPublicEvent(JSON.stringify({ type: '<script>' })), null);
+  assert.equal(toPublicEvent(JSON.stringify({})), null);
+});

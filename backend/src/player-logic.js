@@ -66,3 +66,13 @@ export const toFeatures = (row) => (row ? {
   id: row.id, genre: row.genre || '', bpm: Number(row.bpm) || 0, key: row.musical_key || '',
   energy: Number(row.energy) || 0, duration_seconds: Number(row.duration_seconds) || 0, artist: row.artist || '',
 } : undefined);
+
+// Solo se reenvía el tipo de aviso: el contenido (ids de petición, resultados) no sale a la página pública.
+export const toPublicEvent = (message) => {
+  try {
+    const { type } = JSON.parse(message);
+    return typeof type === 'string' && /^[a-z_]{1,40}$/.test(type) ? { type } : null;
+  } catch {
+    return null;
+  }
+};
