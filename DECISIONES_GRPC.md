@@ -7,7 +7,99 @@ Registro de las decisiones tomadas al pasar la comunicación backend ↔ motor d
 - El backend (Node) habla con el motor (Python) por **gRPC**: `CheckCompatibility` (unario) y `StreamEvaluation` (server streaming).
 - El navegador **sigue usando REST**: recibe el estado en vivo de su petición por **SSE** (`EventSource`) o, si falla, por **polling**.
 - Todo está implementado y probado **en local con Docker Compose**.
-- **El despliegue de Render no cambia**: en el plan gratis Render no puede llevar gRPC entre los dos servicios (ver [Render](#render-se-puede-usar-grpc-en-el-plan-gratis)). Sin `AI_GRPC_URL`, el backend usa el HTTP de siempre. La alternativa recomendada está en [Cómo desplegar gRPC](#cómo-desplegar-grpc-en-la-nube-recomendado).
+- En el plan gratis, Render no puede llevar gRPC entre **dos** servicios (ver [Render](#render-se-puede-usar-grpc-en-el-plan-gratis)).
+- **La solución gratis vigente es un [contenedor único](#contenedor-único-en-render-gratis-decisión-vigente):** motor y backend en el mismo servicio, comunicados por gRPC en `127.0.0.1:50051`.
+- Sin `AI_GRPC_URL`, el backend sigue usando el HTTP de siempre.
+
+## Contenedor único en Render gratis (decisión vigente)
+
+**Por qué:** Render gratis no deja que un servicio reciba tráfico privado, pero dentro de un mismo contenedor los procesos sí se pueden hablar por `localhost`. Así hay gRPC real (HTTP/2 y server streaming) sin pagar y sin exponer el motor a internet.
+
+### Arquitectura
+
+```
+┌──────────────────── Servicio web smart-dj-platform (Render, Free, 512 MB) ────────────────────┐
+│  start-combined.sh (PID 1)                                                                    │
+│   ├─ python -m app.serve   motor de IA:  gRPC 127.0.0.1:50051  +  HTTP 127.0.0.1:8000         │
+│   │                          ▲ StreamEvaluation / CheckCompatibility (gRPC, sin TLS)          │
+│   └─ node src/server.js    backend:      $PORT (público, lo usa el navegador por REST y SSE)  │
+└───────────────────────────────────────────────────────────────────────────────────────────────┘
+          │ Postgres (Supabase) · Redis (Upstash): igual que hoy, por las variables del servicio
+```
+
+- **Archivos:** `Dockerfile.combined` y `start-combined.sh` en la raíz del repo, más un `.dockerignore` que deja fuera `.env` y `node_modules`. `backend/Dockerfile` y `ai/Dockerfile` **no cambian**: el despliegue actual con Root Directory `backend/` sigue funcionando igual.
+- **Imagen:** dos etapas. Se usa `python:3.12-slim-bookworm` con el binario de Node 22 copiado desde `node:22-bookworm-slim`; los dos parten de Debian bookworm, así que los módulos nativos (argon2) son compatibles. Las dependencias de npm se instalan en una etapa aparte.
+- **Variables que trae la imagen:**
+
+  | Variable | Valor |
+  | --- | --- |
+  | `AI_GRPC_PORT` | 50051 |
+  | `AI_HTTP_PORT` | 8000 |
+  | `AI_BIND_HOST` | 127.0.0.1 |
+  | `AI_GRPC_URL` | 127.0.0.1:50051 |
+  | `AI_GRPC_TLS` | false |
+  | `AI_SERVICE_URL` | http://127.0.0.1:8000 |
+  | `AI_ENABLE_ANALYZE` | false |
+
+  Las de Render tienen prioridad.
+- **Arranque (`start-combined.sh`):**
+  1. Lanza el motor y espera hasta 90 s (`AI_GRPC_WAIT_SECONDS`) a que el puerto gRPC acepte conexiones. Si el motor muere antes, el contenedor sale con error.
+  2. Lanza el backend.
+  3. Si **cualquiera** de los dos termina, detiene al otro y el contenedor sale con error, para que Render lo reinicie.
+  4. Con SIGTERM (cuando Render apaga el servicio), detiene los dos. Espera 10 s y luego fuerza el cierre, porque Node no sale solo mientras BullMQ mantiene Redis abierto.
+- **Puertos:** el motor escucha **solo en 127.0.0.1** (`AI_BIND_HOST`), así que desde fuera del contenedor solo se ve `$PORT`. Probado: desde otro contenedor, 8000 y 50051 no son visibles. Así Render no puede confundir el puerto público.
+
+### Medición de memoria (local, `docker stats`, con `mem_limit: 512m` y `PORT=10000`)
+
+| Situación | Memoria |
+| --- | --- |
+| En reposo (motor + backend) | **96–97 MiB** (≈19 %) |
+| 20 peticiones simultáneas con su SSE abierto (pico de 40 muestras) | **102,7 MiB** (≈20 %) |
+| Después de la carga | 102–104 MiB |
+| Reinicios por falta de memoria (OOM) | ninguno |
+| Por proceso (RSS, incluye páginas compartidas) | Python ≈ 88 MB, Node ≈ 97 MB, bash ≈ 3 MB |
+| `/analyze` (librosa: `tempo` + `chroma_cqt` sobre 30 s de audio), medido aparte | **+400 MB**: el proceso Python sube a 413 MB, con pico de 432 MB |
+
+- **Recortes aplicados:**
+  - librosa y numpy se importan **solo dentro de `/analyze`**.
+  - En el contenedor combinado `/analyze` está **apagado** (`AI_ENABLE_ANALYZE=false` → 503) porque no cabe junto al backend en 512 MB. Hoy nadie llama a `/analyze` (ni el backend ni el frontend), y el servicio `smart-dj-ai` separado lo mantiene activo.
+  - Imágenes slim y solo el binario de Node, sin npm en la imagen final.
+- Tamaño de la imagen: 1,19 GB, casi todo por librosa/scipy en `requirements.txt`. No afecta la RAM.
+
+### Pruebas del contenedor combinado (todas en local)
+- `GET /api/health` → `{"status":"ok"}` en el puerto 10000.
+- `/health` del motor (interno) → `grpc: true`.
+- `/analyze` → 503.
+- `grpc-smoke.mjs` dentro del contenedor contra `127.0.0.1:50051`: unario, streaming e `INVALID_ARGUMENT`.
+- SSE de punta a punta: llegaron las 5 etapas. Con carga, 20 de 20 peticiones con SSE recibieron `result` y todas quedaron evaluadas en Postgres. La conexión 21 en el mismo minuto recibe 429 (rate limit).
+- Fallos:
+  - Matar Python → contenedor `exited 137`.
+  - Matar Node → `exited 137`.
+  - SIGTERM → `exited 0` en 12 s.
+
+### Cómo activarlo en Render (servicio `smart-dj-platform`)
+1. **Settings → Build & Deploy:**
+   - **Root Directory:** vacío (la raíz del repo; hoy es `backend`).
+   - **Dockerfile Path:** `./Dockerfile.combined`.
+   - **Docker Build Context Directory:** `.` (la raíz).
+2. **Environment:** agrega `AI_GRPC_URL=127.0.0.1:50051` y `AI_GRPC_TLS=false`. La imagen ya los trae por defecto, pero así quedan explícitos en el panel.
+   - Las variables actuales (`DATABASE_URL`, `REDIS_URL`, `SUPABASE_URL`, `SUPABASE_JWKS_URL`, `CORS_ORIGIN`, etc.) se quedan igual.
+   - Si `AI_SERVICE_URL` apunta al `smart-dj-ai` separado, puedes dejarla: con `AI_GRPC_URL` definido no se usa.
+3. **Save Changes** y **Manual Deploy → Deploy latest commit**. El primer build tarda más por librosa.
+4. En los logs deben aparecer, en orden:
+   - `[combined] gRPC listo en 127.0.0.1:50051`
+   - `[combined] Iniciando el backend`
+   - `API listening on 10000`
+5. Comprueba que `GET https://smart-dj-platform.onrender.com/api/health` responde `{"status":"ok"}`. Después envía una petición desde el link público de un local: el estado debe avanzar por etapas.
+6. El servicio `smart-dj-ai` separado queda sin uso por el backend y se puede pausar después. No es necesario tocarlo.
+
+### Cómo volver atrás
+1. **Settings → Build & Deploy:**
+   - **Root Directory:** `backend`.
+   - **Dockerfile Path:** `./Dockerfile` (o vacío).
+   - **Build Context:** `.` (relativo a `backend`).
+2. **Environment:** borra `AI_GRPC_URL` (o déjala vacía) y `AI_GRPC_TLS`. Verifica que `AI_SERVICE_URL` apunte de nuevo al servicio `smart-dj-ai`.
+3. **Manual Deploy.** El backend vuelve a llamar al motor por HTTP, exactamente como antes. No hace falta revertir ningún commit.
 
 ```
 Navegador ──REST──▶ Backend (Express) ──BullMQ──▶ Worker
@@ -100,7 +192,9 @@ Por eso, como se pidió, **no se cambió el despliegue**: en Render se sigue usa
 
 ## Cómo desplegar gRPC en la nube (recomendado)
 
-### Opción A (recomendada): motor de IA como Private Service de pago en Render
+La opción gratis vigente es el [contenedor único](#contenedor-único-en-render-gratis-decisión-vigente). Las siguientes son alternativas si se quieren servicios separados.
+
+### Opción A: motor de IA como Private Service de pago en Render
 Es gRPC real con streaming, por la red privada de Render, sin exponer el motor a internet ni agregar autenticación. El backend puede seguir en plan gratis, porque los servicios gratis sí pueden *enviar* tráfico privado.
 
 1. En Render, crea un **Private Service** nuevo:
