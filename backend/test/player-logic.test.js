@@ -27,7 +27,7 @@ test('las peticiones se intercalan después de la siguiente pista y nunca juntas
   assert.deepEqual(insertAt(['a', 'b', 'c'], 1, 'x'), ['a', 'x', 'b', 'c']);
 });
 
-test('el respaldo sin motor no repite y prefiere el género y la energía del local', () => {
+test('el respaldo sin motor evita repetir, prefiere el género y la energía del local', () => {
   const candidates = [
     { id: '1', genre: 'electronic', energy: 5, artist: 'A' },
     { id: '2', genre: 'jazz', energy: 2, artist: 'B' },
@@ -37,7 +37,8 @@ test('el respaldo sin motor no repite y prefiere el género y la energía del lo
   assert.equal(pick({}).genre, 'jazz');
   assert.equal(pick({ recentIds: ['2'] }).id, '3');
   assert.equal(pick({ recentArtists: ['b'] }).id, '3');
-  assert.equal(pick({ recentIds: ['1', '2', '3'] }), null);
+  assert.equal(pick({ recentIds: ['1', '2', '3'] }).genre, 'jazz');
+  assert.equal(pick({ candidates: [] }), null);
 });
 
 test('la transición por defecto sale antes del final', () => {

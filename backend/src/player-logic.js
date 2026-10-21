@@ -42,14 +42,16 @@ export const pickFallback = ({ candidates, venueKind, venueTags = [], recentIds 
   const artists = new Set(recentArtists.map((a) => String(a).toLowerCase()));
   const tags = new Set(venueTags.map((t) => t.toLowerCase()));
   const [low, high] = VENUE_ENERGY[venueKind] ?? VENUE_ENERGY.other;
+  // Si todo sonó hace poco, repite antes que dejar la emisora en silencio (igual que el motor).
   const fresh = candidates.filter((c) => !recent.has(c.id));
-  if (!fresh.length) return null;
+  const pool = fresh.length ? fresh : candidates;
+  if (!pool.length) return null;
   const score = (c) => {
     const energy = Number(c.energy) || 0;
     const energyFit = !energy ? 0.5 : energy >= low && energy <= high ? 1 : Math.max(0, 1 - Math.min(Math.abs(energy - low), Math.abs(energy - high)) / 2);
     return (tags.has(String(c.genre).toLowerCase()) ? 1 : 0) + energyFit - (artists.has(String(c.artist).toLowerCase()) ? 0.6 : 0) + random() * 0.3;
   };
-  return fresh.map((c) => ({ c, s: score(c) })).sort((a, b) => b.s - a.s)[0].c;
+  return pool.map((c) => ({ c, s: score(c) })).sort((a, b) => b.s - a.s)[0].c;
 };
 
 // Transición por defecto cuando no la sugiere el motor: crossfade fijo y salida antes del final.
