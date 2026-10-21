@@ -8,7 +8,7 @@ Object.assign(process.env, {
   AI_SERVICE_URL: process.env.AI_SERVICE_URL || 'http://localhost:1', SUPABASE_URL: process.env.SUPABASE_URL || 'https://test.supabase.co',
   SUPABASE_JWKS_URL: process.env.SUPABASE_JWKS_URL || 'http://localhost:1/jwks',
 });
-const { findMissing, REQUIRED_SCHEMA, REQUIRED_TYPES } = await import('../src/schema-check.js');
+const { findMissing, REQUIRED_SCHEMA, REQUIRED_TYPES, schemaTables } = await import('../src/schema-check.js');
 
 const rowsFor = (schema) => Object.entries(schema).flatMap(([table, cols]) => cols.map((column) => ({ table_name: table, column_name: column })));
 
@@ -24,4 +24,10 @@ test('reporta tablas, columnas y tipos faltantes', () => {
   assert.ok(missing.includes('columna users.auth_id'));
   assert.ok(missing.includes('tipo request_status'));
   assert.equal(missing.length, 3);
+});
+
+test('revisa también las tablas nuevas de la emisora (006)', () => {
+  const tables = schemaTables();
+  for (const table of ['users', 'song_requests', 'track_cache', 'track_search_cache', 'player_state', 'play_queue', 'mix_history']) assert.ok(tables.includes(table), table);
+  assert.equal(new Set(tables).size, tables.length);
 });

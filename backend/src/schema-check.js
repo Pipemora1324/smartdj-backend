@@ -1,4 +1,5 @@
 import { query } from './db.js';
+import { AppError } from './errors.js';
 
 // Tablas y columnas que usa el código. Si en producción falta algo, el log lo dice al arrancar
 // (en lugar de fallar con un 500 en la primera petición).
@@ -15,8 +16,17 @@ export const OPTIONAL_COLUMNS = {
   'song_requests.preview_url': '004_canciones_buscador.sql',
   'song_requests.played_at': '005_panel_dueno.sql',
   'song_requests.status_updated_at': '005_panel_dueno.sql',
+  'track_cache.id': '006_emisora.sql',
+  'track_search_cache.query_key': '006_emisora.sql',
+  'player_state.establishment_id': '006_emisora.sql',
+  'play_queue.id': '006_emisora.sql',
+  'mix_history.track_id': '006_emisora.sql',
+  'establishments.exclude_non_commercial': '006_emisora.sql',
 };
+// Tablas a revisar: las obligatorias y las de columnas opcionales (algunas tablas son nuevas, de la 006).
+export const schemaTables = () => [...new Set([...Object.keys(REQUIRED_SCHEMA), ...Object.keys(OPTIONAL_COLUMNS).map((key) => key.split('.')[0])])];
 const presentColumns = new Set();
+let lastCheckAt = 0;
 // true si la columna existe (según la última verificación al arrancar).
 export const hasColumn = (key) => presentColumns.has(key);
 
@@ -37,8 +47,9 @@ export const checkSchema = async () => {
   try {
     const columns = await query(
       `SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ANY($1)`,
-      [Object.keys(REQUIRED_SCHEMA)]);
+      [schemaTables()]);
     const types = await query(`SELECT typname FROM pg_type WHERE typname = ANY($1)`, [REQUIRED_TYPES]);
+    lastCheckAt = Date.now();
     presentColumns.clear();
     for (const r of columns.rows) presentColumns.add(`${r.table_name}.${r.column_name}`);
     const pendingFiles = [...new Set(Object.entries(OPTIONAL_COLUMNS).filter(([key]) => !presentColumns.has(key)).map(([, file]) => file))];
@@ -54,4 +65,14 @@ export const checkSchema = async () => {
     console.error('No se pudo verificar el esquema de la base de datos:', err.message);
     return null;
   }
+};
+
+// Emisora (migración 006): si faltan sus tablas responde 503 con un mensaje claro en lugar de un 500.
+// Vuelve a revisar el esquema como mucho una vez por minuto, para no exigir reiniciar después de correr el SQL.
+const PLAYER_KEYS = ['track_cache.id', 'track_search_cache.query_key', 'player_state.establishment_id', 'play_queue.id', 'mix_history.track_id', 'establishments.exclude_non_commercial'];
+const RECHECK_MS = 60 * 1000;
+export const requirePlayerSchema = async () => {
+  if (PLAYER_KEYS.every(hasColumn)) return;
+  if (Date.now() - lastCheckAt > RECHECK_MS) await checkSchema();
+  if (!PLAYER_KEYS.every(hasColumn)) throw new AppError(503, 'La emisora todavía no está lista: falta ejecutar la migración 006_emisora.sql en la base de datos.');
 };
