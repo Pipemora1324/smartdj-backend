@@ -1,0 +1,37 @@
+# Imagen única para Render gratis: motor de IA (Python, HTTP 8000 + gRPC 50051 solo en 127.0.0.1)
+# y backend (Node, puerto público $PORT) en el mismo contenedor, comunicados por gRPC en localhost.
+# Se construye desde la raíz del repo: docker build -f Dockerfile.combined .
+# backend/Dockerfile y ai/Dockerfile siguen intactos para los despliegues separados.
+
+# Dependencias de Node en una etapa aparte (incluye compilar módulos nativos si hiciera falta).
+FROM node:22-bookworm-slim AS node-deps
+WORKDIR /deps
+COPY backend/package.json ./
+RUN npm install --omit=dev --no-audit --no-fund
+
+FROM python:3.12-slim-bookworm
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 NODE_ENV=production \
+    AI_GRPC_PORT=50051 AI_HTTP_PORT=8000 AI_BIND_HOST=127.0.0.1 \
+    AI_GRPC_URL=127.0.0.1:50051 AI_GRPC_TLS=false AI_SERVICE_URL=http://127.0.0.1:8000 \
+    AI_ENABLE_ANALYZE=false
+# AI_ENABLE_ANALYZE=false: /analyze (librosa) usa ~400 MB y no cabe junto al backend en 512 MB.
+# Solo el binario de Node (misma base Debian bookworm que node-deps, compatible con los módulos nativos).
+COPY --from=node-deps /usr/local/bin/node /usr/local/bin/node
+
+WORKDIR /app/ai
+COPY ai/requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+COPY ai/app ./app
+COPY ai/proto ./proto
+
+WORKDIR /app/backend
+COPY --from=node-deps /deps/node_modules ./node_modules
+COPY backend/package.json ./
+COPY backend/src ./src
+COPY backend/proto ./proto
+
+WORKDIR /app
+COPY start-combined.sh ./
+RUN chmod +x start-combined.sh
+EXPOSE 3000
+CMD ["/app/start-combined.sh"]
