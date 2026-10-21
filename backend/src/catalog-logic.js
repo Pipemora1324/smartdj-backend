@@ -18,7 +18,10 @@ export const tagsForVenue = (kind) => VENUE_TAGS[kind] ?? VENUE_TAGS.other;
 export const monthKey = (date = new Date()) => `jamendo:calls:${date.toISOString().slice(0, 7)}`;
 
 export const normalizeText = (value) => String(value ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-export const searchKey = (provider, q, tags) => `${provider}|${normalizeText(q)}|${[...tags].map(normalizeText).sort().join(',')}`.slice(0, 200);
+export const searchKey = (provider, q, tags) => {
+  const sortedTags = [...tags].map(normalizeText).sort((a, b) => a.localeCompare(b)).join(',');
+  return `${provider}|${normalizeText(q)}|${sortedTags}`.slice(0, 200);
+};
 export const isFresh = (fetchedAt, now = Date.now()) => now - new Date(fetchedAt).getTime() < CACHE_TTL_MS;
 
 // INSERT ... ON CONFLICT para track_cache. Quita duplicados (Postgres no deja actualizar la misma fila dos veces).
@@ -30,7 +33,7 @@ export const buildTrackUpsert = (tracks) => {
     const start = values.length;
     values.push(t.provider, t.externalId, t.title, t.artist, t.genre, t.durationSeconds, t.artworkUrl, t.audioUrl, t.shareUrl, t.licenseUrl,
       t.licenseLabel, t.nonCommercial, t.bpm || null, t.musicalKey || null, t.energy, JSON.stringify(t.waveform ?? []));
-    return `(${TRACK_COLUMNS.map((_, i) => `$${start + i + 1}`).join(',')})`;
+    return `(${TRACK_COLUMNS.map((_, i) => '$' + (start + i + 1)).join(',')})`;
   });
   const updates = TRACK_COLUMNS.slice(2).map((c) => `${c}=EXCLUDED.${c}`).join(',');
   return {
