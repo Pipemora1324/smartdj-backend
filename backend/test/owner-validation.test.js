@@ -44,3 +44,20 @@ test('el local puede excluir las pistas no comerciales', () => {
   assert.deepEqual(venuePatchSchema.parse({ exclude_non_commercial: true }), { exclude_non_commercial: true });
   assert.throws(() => venuePatchSchema.parse({ exclude_non_commercial: 'si' }), /true o false/);
 });
+
+test('el reproductor valida consola, posición, volumen, modo y cola', async () => {
+  const v = await import('../src/owner-validation.js');
+  assert.deepEqual(v.claimSchema.parse({ consoleId: 'consola-1234' }), { consoleId: 'consola-1234' });
+  assert.throws(() => v.claimSchema.parse({ consoleId: '<x>' }), /consola no es válido/);
+  assert.throws(() => v.pauseSchema.parse({ positionSeconds: -1 }), /negativa/);
+  assert.equal(v.skipSchema.parse({}).reason, 'user');
+  assert.throws(() => v.skipSchema.parse({ reason: 'boring' }), /user o error/);
+  assert.deepEqual(v.advanceSchema.parse({ fromTrackId: null }), { fromTrackId: null });
+  assert.throws(() => v.advanceSchema.parse({}), Error);
+  assert.deepEqual(v.playerSettingsSchema.parse({ volume: 50, mode: 'manual' }), { volume: 50, mode: 'manual' });
+  assert.throws(() => v.playerSettingsSchema.parse({ volume: 101 }), /0 a 100/);
+  assert.throws(() => v.playerSettingsSchema.parse({ mode: 'random' }), /autodj o manual/);
+  assert.throws(() => v.playerSettingsSchema.parse({}), /No hay cambios/);
+  assert.throws(() => v.queueAddSchema.parse({ provider: 'jamendo', externalId: '1;DROP' }), /no es válida/);
+  assert.throws(() => v.queueOrderSchema.parse({ order: ['no-uuid'] }), Error);
+});
