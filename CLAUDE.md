@@ -8,6 +8,17 @@ Plataforma para locales (cafeterías, restaurantes, bares). El dueño crea cuent
 - Despliegue: backend y ai en Render, PostgreSQL en Supabase, Redis en Upstash. El frontend vive en el repo `smartdj-frontend` (Vercel).
 - **Autenticación: Supabase Auth.** Registro, códigos de 6 dígitos (SMTP de Gmail en el panel de Supabase), login y recuperación se hacen desde el frontend. La API solo valida el token con JWKS (`supabase-token.js`) y usa `requireSupabaseAuth` (`supabase-auth.js`), que vincula la cuenta con `users.auth_id`; `req.user.sub` es el `users.id` local. La auth propia de la Fase 1 (`codes.js`, `auth.js`, rutas de `routes/auth.js`) queda sin uso y responde 410: no volver a usarla. Guía en `SUPABASE_AUTH.md`.
 
+## Convenciones técnicas (bloques A–F)
+
+- **Migraciones:** archivos idempotentes en `database/migrations/`, numerados (001…005). Una columna nueva que use el código va en `OPTIONAL_COLUMNS` de `schema-check.js` y se consulta con `hasColumn()`, para que producción no se rompa antes de correr el SQL.
+- **Errores:** usa `AppError` con un mensaje en español; los 5xx se registran con stack. Todo dato del usuario que vaya al log pasa por `sanitizeForLog()`. Los mensajes de Zod salen en español (`zod-es.js`).
+- **Redis:** la app usa `redis`, que falla rápido; el worker de BullMQ usa `createWorkerConnection()`. No vuelvas a compartir la conexión.
+- **Endpoints públicos:** todos con rate limit y validación Zod. Los ids, como UUID. Las rutas del dueño validan la propiedad con `ownedVenue()`.
+- **Dependencias:** `backend/package-lock.json` (`npm ci --ignore-scripts`) y `ai/requirements.lock` con hashes. Al cambiar `requirements.txt`, regenera el lock (ver README).
+- **Docker:** las imágenes corren sin root. `Dockerfile.combined` es el despliegue gratis en Render (motor y backend con gRPC en localhost).
+- **Pruebas:** `npm test` en `backend/` y `python -m unittest discover -s tests` en `ai/`. Escribe pruebas para lo que agregues y córrelas antes de cada push.
+- **Pendientes fuera del código:** `PENDIENTES.md`.
+
 ## Reglas fijas
 
 - **Idioma del código:** todo en inglés: variables, funciones, archivos, rutas, tablas y columnas nuevas.

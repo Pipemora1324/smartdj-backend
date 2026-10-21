@@ -210,6 +210,34 @@ Todas las rutas requieren el token de Supabase. Cada `:id` se valida como UUID y
   | Estado de una petición | 120 |
   | SSE | 20 |
 
+## Calidad: SonarCloud (bloque F)
+
+El Quality Gate fallaba por **fiabilidad** (C) y **seguridad** (C). Duplicación y mantenibilidad estaban bien. Lo que se corrigió:
+
+| Hallazgo | Corrección |
+| --- | --- |
+| Promesas sin `await` ni `.catch` (S9383) | `.catch` en los diagnósticos de arranque y en el stream gRPC |
+| Inyección en logs (S5145) | `sanitizeForLog()` limpia ruta y `Origin` antes de registrarlos |
+| Dependencias sin versión fija (S8543/S8544/S8564) | `backend/package-lock.json` + `npm ci`; `ai/requirements.lock` con hashes (pip-compile) + `--require-hashes` |
+| Scripts de instalación (S6505/S8541) | `npm ci --ignore-scripts` y `pip install --only-binary :all:` |
+| Contenedores como root (S6471) | `USER node` / usuario `app` (uid 10001); gateway con `nginx-unprivileged` en el puerto 8080 |
+
+Se dejaron sin cambiar, documentados como falsos positivos:
+- `mailer.js:15`: es `jsonTransport`, de la auth anterior, que ya no se usa.
+
+Para regenerar el lock de Python dentro de Linux:
+
+```bash
+docker run --rm -v "$PWD/ai:/work" -w /work python:3.12-slim sh -c "pip install pip-tools==7.4.1 && pip-compile --generate-hashes --allow-unsafe --strip-extras -o requirements.lock requirements.txt"
+```
+
+## Pruebas
+
+```bash
+cd backend && npm test                           # 28 pruebas (Node)
+cd ai && python -m unittest discover -s tests    # 24 pruebas (Python)
+```
+
 ## CORS
 
 Solo se aceptan los orígenes de `knownOrigins` en `backend/src/config.js` y los que se agreguen en `CORS_ORIGIN` (separados por coma). Para un nuevo dominio del frontend, agrégalo a `CORS_ORIGIN`.
