@@ -19,6 +19,24 @@ Plataforma para locales (cafeterías, restaurantes, bares). El dueño crea cuent
 - **Pruebas:** `npm test` en `backend/` y `python -m unittest discover -s tests` en `ai/`. Escribe pruebas para lo que agregues y córrelas antes de cada push.
 - **Pendientes fuera del código:** `PENDIENTES.md`.
 
+## Emisora automática (AutoDJ)
+
+- **Decisiones y evidencia:** `DECISIONES_DJ.md`. Incluye el formato de Jamendo, el CORS del audio, los términos y por qué el audio suena en la consola del dueño.
+- **Catálogo:**
+  - `music-providers/` (Jamendo y Audius) tiene funciones puras y clientes que reciben su configuración.
+  - `music-catalog.js` maneja el caché en la base de datos (24 h) y el tope mensual en Redis.
+  - Nunca consultes al proveedor en bucle ni con temporizadores. Guarda solo metadatos, nunca audio.
+- **Lógica pura** (sin base de datos ni Redis, probada con `node --test`): `catalog-logic.js` y `player-logic.js`. Lo que se pueda probar aislado va ahí.
+- **Reproductor:**
+  - `player.js` hace cada escritura en una transacción con `player_state` bloqueado.
+  - Las rutas están en `routes/player.js`.
+  - `advance` y `skip` son idempotentes con `fromTrackId`.
+- **AutoDJ:**
+  - `autodj.js` (`ensureQueue`) se dispara solo por eventos y nunca lanza.
+  - El contrato es `SuggestNext` en `compatibility.proto`, con la lógica en `ai/app/autodj.py`; `POST /suggest-next` es el modo HTTP.
+- **Página pública:** nunca expone audio, ids de petición, nombres de clientes ni el `consoleId`. Los avisos van por `venue-events.js`, con un solo suscriptor de Redis.
+- **Supabase:** toda tabla nueva va con `ENABLE ROW LEVEL SECURITY` (la clave anon es pública).
+
 ## Reglas fijas
 
 - **Idioma del código:** todo en inglés: variables, funciones, archivos, rutas, tablas y columnas nuevas.
