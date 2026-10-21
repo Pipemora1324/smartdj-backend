@@ -34,6 +34,18 @@ const ensureConnected = (connectTimeoutMs = config.aiGrpcConnectTimeoutMs) =>
       : resolve()));
   });
 
+// Diagnóstico al arrancar: avisa en el log si gRPC está configurado pero el motor no responde
+// (por ejemplo, AI_GRPC_URL=127.0.0.1:50051 sin usar el contenedor combinado).
+export const checkAiConnection = async () => {
+  if (!grpcEnabled()) return console.log('Motor de IA por HTTP (AI_GRPC_URL vacío).');
+  try {
+    await ensureConnected(Math.max(config.aiGrpcConnectTimeoutMs, 5000));
+    console.log(`Motor de IA conectado por gRPC en ${config.aiGrpcUrl}.`);
+  } catch {
+    console.error(`El motor de IA no responde por gRPC en ${config.aiGrpcUrl}. Las peticiones quedarán como "failed" hasta que responda. Si no usas el contenedor combinado, deja AI_GRPC_URL vacío.`);
+  }
+};
+
 // Convierte un error gRPC en un AppError con mensaje en español; conserva el código gRPC en extra.
 export const toAppError = (err) => {
   const byCode = {
