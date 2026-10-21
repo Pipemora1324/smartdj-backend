@@ -184,6 +184,32 @@ Todas las rutas requieren el token de Supabase. Cada `:id` se valida como UUID y
   - Rate limit de 120 por minuto por IP.
 - Sin la migración 005, se ordena por `evaluated_at`.
 
+## Motor y seguridad (bloque E)
+
+- **Familias de género** (`ai/app/engine.py`):
+  - Cada género se clasifica por palabra completa, sin acentos. Si hay varias, gana la última ("indie rock" es rock).
+  - Una tabla explícita define la afinidad entre familias (salsa↔urbano, dance↔pop…).
+  - Antes se buscaban subtextos y la "afinidad" comparaba nombres de familia contra listas de géneros. Por eso "Reggaeton" salía como salsa y casi nada era "relacionado".
+- **Tonalidades:** se interpretan `C`, `C#`, `Db`, `Am`, `Bbm`, `F# menor`, `A minor`, `8A`… y se puntúan con la **rueda Camelot**: misma 1,0; relativa (Am/C) 0,9; vecina 0,85. Antes "Am" y "A" daban 1,0 porque se perdía el modo menor.
+- **BPM:** tolera medio y doble tempo (70 ≈ 140). 0 o vacío significa desconocido y da un puntaje neutral (0,55); lo mismo pasa con la tonalidad.
+- **Evaluación contra lo que suena:** el worker compara cada petición con la **última canción marcada como sonada en ese local**. Si no suena ninguna, la compara con el ambiente del local. Antes usaba valores fijos (Pop, 120 BPM, Do).
+- **`/analyze` contra SSRF** (`ai/app/safe_fetch.py`):
+  - Solo `https`, puerto 443 y hosts permitidos (`AI_ANALYZE_ALLOWED_HOSTS`, por defecto los de audio de Apple y Deezer).
+  - Todas las IPs resueltas deben ser públicas.
+  - Sin redirecciones; máximo `AI_ANALYZE_MAX_BYTES` (10 MB) y 20 s.
+  - La imagen del motor incluye ffmpeg para decodificar los previews `.m4a`.
+- **UTF-8:** se revisaron todos los archivos de los dos repos y no hay texto mal codificado. Se declaró `charset=utf-8` en el gateway nginx y en el servidor estático de desarrollo.
+- **Validación:** los mensajes de Zod salen en español (`backend/src/zod-es.js`).
+- **Rate limit en todos los endpoints públicos** (por IP, por minuto):
+
+  | Endpoint | Límite |
+  | --- | --- |
+  | Consultar el local y `/now` | 120 |
+  | Búsqueda | 30 |
+  | Peticiones | 10 |
+  | Estado de una petición | 120 |
+  | SSE | 20 |
+
 ## CORS
 
 Solo se aceptan los orígenes de `knownOrigins` en `backend/src/config.js` y los que se agreguen en `CORS_ORIGIN` (separados por coma). Para un nuevo dominio del frontend, agrégalo a `CORS_ORIGIN`.
