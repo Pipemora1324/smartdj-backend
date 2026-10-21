@@ -79,12 +79,12 @@ export const streamEvaluation = async (requestId, request, onEvent, { timeoutMs 
       if (event.stage === 'RESULT') result = event.result;
       if (onEvent) pending.push(Promise.resolve().then(() => onEvent(event)).catch((err) => console.error('Error procesando un evento del stream gRPC:', err.message)));
     });
-    call.on('error', (err) => { failed = true; Promise.allSettled(pending).then(() => reject(toAppError(err))); });
+    call.on('error', (err) => { failed = true; Promise.allSettled(pending).then(() => reject(toAppError(err))).catch(reject); });
     call.on('end', () => {
       if (failed) return;
       Promise.allSettled(pending).then(() => (result
         ? resolve(result)
-        : reject(new AppError(502, 'El motor terminó la evaluación sin enviar un resultado.'))));
+        : reject(new AppError(502, 'El motor terminó la evaluación sin enviar un resultado.')))).catch(reject);
     });
   });
 };
