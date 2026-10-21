@@ -1,6 +1,7 @@
 import { Router } from 'express'; import { z } from 'zod'; import { query } from '../db.js'; import { requestQueue, evaluationJobOptions } from '../queue.js'; import { AppError } from '../errors.js';
 import { rateLimit } from 'express-rate-limit'; import { redis } from '../redis.js'; import { FINAL_STAGES, publishRequestEvent, readRequestStatus, statusChannel } from '../request-status.js';
 import { lookupTrack, searchTracks } from '../music-search.js'; import { hasColumn } from '../schema-check.js';
+import { playerSnapshot } from '../player.js'; import { listenVenue } from '../venue-events.js';
 // BPM y tonalidad son opcionales: "", null o espacios cuentan como "sin dato".
 const emptyToUndefined=(v)=>(v===null||(typeof v==='string'&&v.trim()==='')?undefined:v);
 const router=Router();
@@ -49,8 +50,19 @@ router.get('/venues/:code',nowLimiter,async(req,res,next)=>{try{res.json(await f
 // Sin nombres de invitados. Sin la migración 005 se ordena por evaluated_at.
 const NOW_QUEUE_LIMIT=10;
 const publicSong=(r)=>({id:r.id,title:r.title,artist:r.artist,genre:r.genre,artworkUrl:r.artwork_url??null,previewUrl:r.preview_url??null});
+// Emisora (006): si el local tiene reproductor con una pista, se muestra esa pista con su crédito y la cola de la emisora.
+const STATION_QUEUE_LIMIT=5;
+const stationSong=(track,extra={})=>({id:track.id,title:track.title,artist:track.artist,genre:track.genre,artworkUrl:track.artworkUrl,previewUrl:null,credit:track.credit,...extra});
+const stationNow=async(venueId)=>{
+  if(!hasColumn('player_state.establishment_id'))return null;
+  const snap=await playerSnapshot(venueId,{withAudio:false,queueLimit:STATION_QUEUE_LIMIT,create:false});
+  if(!snap?.current)return null;
+  return {station:{status:snap.status,mode:snap.mode},nowPlaying:stationSong(snap.current.track,{playedAt:snap.current.startedAt,source:snap.current.source}),queue:snap.queue.map((item)=>stationSong(item.track,{source:item.source}))};
+};
 router.get('/venues/:code/now',nowLimiter,async(req,res,next)=>{try{
   const venue=await findVenue(req.params.code);
+  const station=await stationNow(venue.id);
+  if(station)return res.json(station);
   const playedOrder=hasColumn('song_requests.played_at')?'played_at DESC NULLS LAST, evaluated_at DESC':'evaluated_at DESC NULLS LAST, created_at DESC';
   const queueOrder=hasColumn('song_requests.status_updated_at')?'COALESCE(status_updated_at, evaluated_at, created_at)':'COALESCE(evaluated_at, created_at)';
   const [playing,queue]=await Promise.all([
@@ -77,6 +89,8 @@ const requestId = z.string().uuid('El id de la petición no es válido.');
 const statusLimiter = rateLimit({ windowMs: 60 * 1000, limit: 120, standardHeaders: 'draft-7', legacyHeaders: false, message: { error: 'Demasiadas consultas. Espera un momento.' } });
 const streamLimiter = rateLimit({ windowMs: 60 * 1000, limit: 20, standardHeaders: 'draft-7', legacyHeaders: false, message: { error: 'Demasiadas conexiones. Espera un momento.' } });
 const SSE_MAX_MS = 2 * 60 * 1000;
+const venueStreamLimiter = rateLimit({ windowMs: 60 * 1000, limit: 30, standardHeaders: 'draft-7', legacyHeaders: false, message: { error: 'Demasiadas conexiones. Espera un momento.' } });
+const VENUE_SSE_MAX_MS = 5 * 60 * 1000;
 const SSE_HEARTBEAT_MS = 15 * 1000;
 
 const loadRequest = async (id) => {
@@ -138,5 +152,39 @@ router.get('/requests/:id/events', streamLimiter, async (req, res, next) => {
     console.error('No se pudo iniciar el SSE:', err.message);
     close();
   }
+});
+// Avisos en vivo del local para la página pública: solo el tipo de cambio ("player_updated", ...); la página
+// vuelve a pedir /now. Se cierra a los 5 minutos y EventSource se reconecta solo.
+router.get('/venues/:code/events', venueStreamLimiter, async (req, res, next) => {
+  let venue;
+  try { venue = await findVenue(req.params.code); } catch (e) { return next(e); }
+  let stop = null;
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    clearInterval(heartbeat); clearTimeout(maxLifetime);
+    stop?.();
+    res.end();
+  };
+  const heartbeat = setInterval(() => res.write(': ping\n\n'), SSE_HEARTBEAT_MS);
+  const maxLifetime = setTimeout(close, VENUE_SSE_MAX_MS);
+  req.on('close', close);
+  try {
+    // Un aviso que llegue antes de enviar las cabeceras se descarta: el cliente pide /now al recibir "ready".
+    stop = await listenVenue(venue.id, (event) => { if (res.headersSent && !closed) res.write(`event: update\ndata: ${JSON.stringify(event)}\n\n`); });
+  } catch (err) {
+    console.error('No se pudo iniciar el SSE del local:', err.message);
+  }
+  if (!stop) {
+    clearInterval(heartbeat); clearTimeout(maxLifetime);
+    if (closed) return;
+    closed = true;
+    return res.status(503).json({ error: 'Demasiadas conexiones en vivo. La página se actualizará cada pocos segundos.' });
+  }
+  if (closed) return stop();
+  res.set({ 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+  res.flushHeaders();
+  res.write('event: ready\ndata: {}\n\n');
 });
 export default router;
