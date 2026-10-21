@@ -8,6 +8,7 @@ from concurrent import futures
 
 import grpc
 
+from app.autodj import MAX_CANDIDATES, suggest_next
 from app.engine import build_result, evaluate, normalize, stage_scores
 
 PROTO_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'proto')
@@ -77,6 +78,26 @@ class CompatibilityService(pb2_grpc.CompatibilityServiceServicer):
         scores['venue'] = stage_values['venue']
         result = build_result(c.venue_type, c.current_genre, c.requested_genre, c.current_bpm, c.requested_bpm, scores)
         yield event(Event.RESULT, result['reason'], result=to_result(result))
+
+    def SuggestNext(self, request, context):
+        validate_suggest(request, context)
+        current = track_dict(request.current) if request.current.id else None
+        result = suggest_next(request.venue_type, current, [track_dict(c) for c in request.candidates],
+                              list(request.recent_ids), list(request.recent_artists))
+        return pb2.SuggestNextResult(**result) if result else pb2.SuggestNextResult(reason='No hay candidatas disponibles.')
+
+
+def track_dict(features):
+    return dict(id=features.id, genre=features.genre, bpm=features.bpm, key=features.key, energy=features.energy,
+                duration_seconds=features.duration_seconds, artist=features.artist)
+
+
+def validate_suggest(request, context):
+    if len(request.candidates) > MAX_CANDIDATES:
+        context.abort(grpc.StatusCode.INVALID_ARGUMENT, f'Se aceptan hasta {MAX_CANDIDATES} candidatas.')
+    for features in [request.current, *request.candidates]:
+        if not 0 <= features.bpm <= 300 or not 0 <= features.energy <= 5 or features.duration_seconds < 0:
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, 'BPM (0-300), energía (0-5) o duración inválidos en una pista.')
 
 
 def create_server(port, max_workers=10, host=None):

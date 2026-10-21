@@ -7,6 +7,7 @@ os.environ['AI_STREAM_STEP_DELAY_MS'] = '0'
 
 import grpc  # noqa: E402
 
+from app.autodj import suggest_next  # noqa: E402
 from app.engine import evaluate  # noqa: E402
 from app.grpc_server import create_server, pb2, pb2_grpc  # noqa: E402
 
@@ -51,6 +52,27 @@ class GrpcServerTest(unittest.TestCase):
         self.assertEqual(ctx.exception.code(), grpc.StatusCode.INVALID_ARGUMENT)
         with self.assertRaises(grpc.RpcError) as ctx:
             list(self.stub.StreamEvaluation(pb2.EvaluationRequest(compatibility=pb2.CompatibilityRequest(**{**SAMPLE, 'current_bpm': 999})), timeout=5))
+        self.assertEqual(ctx.exception.code(), grpc.StatusCode.INVALID_ARGUMENT)
+
+    def test_suggest_next_matches_autodj(self):
+        current = pb2.TrackFeatures(id='now', genre='jazz', energy=2, duration_seconds=180, artist='Ana')
+        candidates = [pb2.TrackFeatures(id='fiesta', genre='house', energy=5, duration_seconds=200, artist='Beto'),
+                      pb2.TrackFeatures(id='suave', genre='lounge', energy=2, duration_seconds=240, artist='Caro')]
+        result = self.stub.SuggestNext(pb2.SuggestNextRequest(venue_type='cafe', current=current, candidates=candidates, recent_ids=['x']), timeout=5)
+        expected = suggest_next('cafe', {'id': 'now', 'genre': 'jazz', 'energy': 2, 'bpm': 0, 'key': '', 'duration_seconds': 180, 'artist': 'Ana'},
+                                [{'id': c.id, 'genre': c.genre, 'energy': c.energy, 'bpm': 0, 'key': '', 'duration_seconds': c.duration_seconds, 'artist': c.artist} for c in candidates], ['x'])
+        self.assertEqual(result.track_id, 'suave')
+        self.assertEqual((result.score, result.reason, result.crossfade_seconds), (expected['score'], expected['reason'], expected['crossfade_seconds']))
+        self.assertAlmostEqual(result.transition_at_seconds, expected['transition_at_seconds'])
+
+    def test_suggest_next_without_candidates_and_invalid_data(self):
+        empty = self.stub.SuggestNext(pb2.SuggestNextRequest(venue_type='cafe'), timeout=5)
+        self.assertEqual(empty.track_id, '')
+        with self.assertRaises(grpc.RpcError) as ctx:
+            self.stub.SuggestNext(pb2.SuggestNextRequest(candidates=[pb2.TrackFeatures(id='a', energy=9)]), timeout=5)
+        self.assertEqual(ctx.exception.code(), grpc.StatusCode.INVALID_ARGUMENT)
+        with self.assertRaises(grpc.RpcError) as ctx:
+            self.stub.SuggestNext(pb2.SuggestNextRequest(candidates=[pb2.TrackFeatures(id=str(i)) for i in range(201)]), timeout=5)
         self.assertEqual(ctx.exception.code(), grpc.StatusCode.INVALID_ARGUMENT)
 
 
