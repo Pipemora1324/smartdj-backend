@@ -6,11 +6,11 @@ import unicodedata
 # Familias de género. Cada género se clasifica por palabra completa (sin acentos ni mayúsculas);
 # si aparecen varias, gana la última ("indie rock" es rock, "latin pop" es pop).
 FAMILY_KEYWORDS = {
-    'urban': ['reggaeton', 'urbano', 'hip hop', 'hip-hop', 'rap', 'trap', 'r&b', 'rnb', 'dancehall', 'dembow'],
-    'salsa': ['salsa', 'tropical', 'bachata', 'merengue', 'cumbia', 'vallenato', 'timba', 'champeta', 'son cubano'],
+    'urban': ['reggaeton', 'urbano', 'hip hop', 'hip-hop', 'hiphop', 'rap', 'trap', 'r&b', 'rnb', 'dancehall', 'dembow'],
+    'salsa': ['salsa', 'tropical', 'bachata', 'merengue', 'cumbia', 'vallenato', 'timba', 'champeta', 'son cubano', 'latin', 'latina'],
     'dance': ['electronica', 'electronic', 'edm', 'house', 'techno', 'trance', 'dance', 'disco'],
     'pop': ['pop', 'k-pop', 'balada', 'baladas'],
-    'chill': ['jazz', 'lofi', 'lo-fi', 'acoustic', 'acustica', 'soul', 'bossa nova', 'chill', 'ambient', 'indie'],
+    'chill': ['jazz', 'lofi', 'lo-fi', 'acoustic', 'acustica', 'soul', 'bossa nova', 'chill', 'ambient', 'indie', 'lounge', 'chillout', 'downtempo'],
     'rock': ['rock', 'alternativo', 'alternative', 'metal', 'punk', 'blues', 'funk', 'grunge'],
 }
 # Afinidad entre familias distintas (0 a 1); lo que no aparece se considera incompatible.

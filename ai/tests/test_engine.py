@@ -18,6 +18,13 @@ class FamilyTest(unittest.TestCase):
             with self.subTest(genre=genre):
                 self.assertEqual(family(genre), expected)
 
+    def test_reconoce_generos_de_jamendo(self):
+        cases = {'lounge': 'chill', 'chillout': 'chill', 'hiphop': 'urban', 'latin': 'salsa', 'electronic': 'dance',
+                 'Urbano latino': 'urban', 'Latin pop': 'pop', 'classical': 'other'}
+        for genre, expected in cases.items():
+            with self.subTest(genre=genre):
+                self.assertEqual(family(genre), expected)
+
     def test_gana_la_ultima_palabra_clave(self):
         self.assertEqual(family('Indie rock'), 'rock')
         self.assertEqual(family('Latin pop'), 'pop')
