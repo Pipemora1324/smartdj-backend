@@ -159,6 +159,22 @@ Antes, con Redis caído la petición se quedaba colgada y un origen rechazado re
   - El formato anterior (`title`, `artist`, `genre`…) sigue aceptándose.
 - La migración `004_canciones_buscador.sql` agrega `external_id`, `artwork_url` y `preview_url` a `song_requests`. Mientras no se aplique, las peticiones se guardan sin esas columnas y el log avisa "Migraciones pendientes".
 
+## Panel del dueño (bloque C)
+
+Todas las rutas requieren el token de Supabase. Cada `:id` se valida como UUID y se comprueba que el local sea del dueño de la sesión; si no lo es, se responde 404 sin revelar si existe.
+
+| Ruta | Uso |
+| --- | --- |
+| `GET /api/venues` | Locales del dueño (puede tener varios) |
+| `POST /api/venues` | Crear local (`name`, `kind`, `ambience`) |
+| `PATCH /api/venues/:id` | Editar uno o más campos |
+| `GET /api/venues/:id/dashboard?limit=50` | Local y peticiones recientes (de 1 a 100) |
+| `PATCH /api/venues/:id/requests/:requestId` | `{ status: "accepted" \| "rejected" \| "played" }`. `played` registra `played_at` |
+
+- Cada cambio de estado se publica en Redis (`venue:<id>`).
+- El panel del frontend se actualiza por polling cada 5 s. No usa SSE porque `EventSource` no puede enviar el token `Bearer`.
+- La migración `005_panel_dueno.sql` agrega `played_at` y `status_updated_at`. Mientras no se aplique, los cambios de estado funcionan igual, solo que sin esas fechas.
+
 ## CORS
 
 Solo se aceptan los orígenes de `knownOrigins` en `backend/src/config.js` y los que se agreguen en `CORS_ORIGIN` (separados por coma). Para un nuevo dominio del frontend, agrégalo a `CORS_ORIGIN`.
