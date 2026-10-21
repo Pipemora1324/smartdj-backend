@@ -9,6 +9,8 @@ service CompatibilityService {
   rpc CheckCompatibility (CompatibilityRequest) returns (CompatibilityResult);
   // Evaluación paso a paso: el servidor emite un evento por etapa y termina con el resultado.
   rpc StreamEvaluation (EvaluationRequest) returns (stream EvaluationEvent);
+  // AutoDJ de la emisora: elige la siguiente pista entre las candidatas.
+  rpc SuggestNext (SuggestNextRequest) returns (SuggestNextResult);
 }
 
 // Datos de la canción que suena (current_*) y de la pedida (requested_*).
@@ -59,4 +61,31 @@ message EvaluationEvent {
   string message = 3;                      // texto en español para mostrar al usuario
   double partial_score = 4;                // puntaje de la etapa, de 0 a 1 (0 en QUEUED y RESULT)
   CompatibilityResult result = 5;          // solo en la etapa RESULT
+}
+
+// Datos de una pista para el AutoDJ. 0 o vacío significa "desconocido".
+message TrackFeatures {
+  string id = 1;                           // id de track_cache
+  string genre = 2;
+  double bpm = 3;                          // 0 = desconocido (Jamendo no lo trae)
+  string key = 4;
+  int32 energy = 5;                        // 1 (muy tranquila) a 5 (muy enérgica), 0 = desconocida
+  double duration_seconds = 6;
+  string artist = 7;
+}
+
+message SuggestNextRequest {
+  string venue_type = 1;
+  TrackFeatures current = 2;               // la última pista de la cola (o la que suena); vacía si no hay
+  repeated TrackFeatures candidates = 3;   // hasta 200
+  repeated string recent_ids = 4;          // pistas que sonaron hace poco: no se repiten
+  repeated string recent_artists = 5;      // se penalizan para no repetir artista
+}
+
+message SuggestNextResult {
+  string track_id = 1;                     // vacío si no hay ninguna candidata
+  int32 score = 2;                         // de 0 a 100
+  string reason = 3;                       // texto en español
+  double transition_at_seconds = 4;        // segundo de la pista elegida en el que empieza el crossfade a la siguiente
+  double crossfade_seconds = 5;
 }
