@@ -8,7 +8,7 @@ from concurrent import futures
 
 import grpc
 
-from app.engine import bpm_score, build_result, evaluate, genre_score, key_score, venue_score
+from app.engine import build_result, evaluate, normalize, stage_scores
 
 PROTO_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'proto')
 if PROTO_DIR not in sys.path:
@@ -27,8 +27,8 @@ def step_delay_seconds():
 def validate(request, context):
     for name in ('current_bpm', 'requested_bpm'):
         value = getattr(request, name)
-        if not 0 < value <= 300:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, f'{name} debe ser mayor que 0 y como máximo 300.')
+        if not 0 <= value <= 300:
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, f'{name} debe estar entre 0 (desconocido) y 300.')
 
 
 def to_result(data):
@@ -55,12 +55,15 @@ class CompatibilityService(pb2_grpc.CompatibilityServiceServicer):
             return Event(request_id=request.request_id, stage=stage, message=message, partial_score=partial, result=result)
 
         yield event(Event.QUEUED, 'Petición recibida por el motor de compatibilidad.')
+        stage_values = stage_scores(c.venue_type, c.current_genre, c.requested_genre, c.current_bpm, c.requested_bpm, c.current_key, c.requested_key)
+        against = c.current_genre if normalize(c.current_genre) else 'el ambiente del local'
+        bpm_text = lambda v: f'{round(v)} BPM' if v else 'BPM desconocido'
         steps = [
-            (Event.ANALYZING_GENRE, 'genre', lambda: genre_score(c.current_genre, c.requested_genre),
-             lambda s: f'Analizando el género: {c.requested_genre or "sin género"} frente a {c.current_genre or "sin género"} ({round(s * 100)}%).'),
-            (Event.ANALYZING_BPM, 'bpm', lambda: bpm_score(c.current_bpm, c.requested_bpm),
-             lambda s: f'Analizando el tempo: {round(c.requested_bpm)} BPM frente a {round(c.current_bpm)} BPM ({round(s * 100)}%).'),
-            (Event.ANALYZING_KEY, 'key', lambda: key_score(c.current_key, c.requested_key),
+            (Event.ANALYZING_GENRE, 'genre', lambda: stage_values['genre'],
+             lambda s: f'Analizando el género: {c.requested_genre or "sin género"} frente a {against} ({round(s * 100)}%).'),
+            (Event.ANALYZING_BPM, 'bpm', lambda: stage_values['bpm'],
+             lambda s: f'Analizando el tempo: {bpm_text(c.requested_bpm)} frente a {bpm_text(c.current_bpm)} ({round(s * 100)}%).'),
+            (Event.ANALYZING_KEY, 'key', lambda: stage_values['key'],
              lambda s: f'Analizando la tonalidad: {c.requested_key or "?"} sobre {c.current_key or "?"} ({round(s * 100)}%).'),
         ]
         scores = {}
@@ -71,7 +74,7 @@ class CompatibilityService(pb2_grpc.CompatibilityServiceServicer):
                 return
             scores[name] = compute()
             yield event(stage, describe(scores[name]), scores[name])
-        scores['venue'] = venue_score(c.venue_type, c.requested_genre)
+        scores['venue'] = stage_values['venue']
         result = build_result(c.venue_type, c.current_genre, c.requested_genre, c.current_bpm, c.requested_bpm, scores)
         yield event(Event.RESULT, result['reason'], result=to_result(result))
 

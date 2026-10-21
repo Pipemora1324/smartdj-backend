@@ -47,7 +47,7 @@ class GrpcServerTest(unittest.TestCase):
 
     def test_invalid_bpm_is_rejected(self):
         with self.assertRaises(grpc.RpcError) as ctx:
-            self.stub.CheckCompatibility(pb2.CompatibilityRequest(**{**SAMPLE, 'requested_bpm': 0}), timeout=5)
+            self.stub.CheckCompatibility(pb2.CompatibilityRequest(**{**SAMPLE, 'requested_bpm': -5}), timeout=5)
         self.assertEqual(ctx.exception.code(), grpc.StatusCode.INVALID_ARGUMENT)
         with self.assertRaises(grpc.RpcError) as ctx:
             list(self.stub.StreamEvaluation(pb2.EvaluationRequest(compatibility=pb2.CompatibilityRequest(**{**SAMPLE, 'current_bpm': 999})), timeout=5))

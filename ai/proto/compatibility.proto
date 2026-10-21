@@ -12,6 +12,8 @@ service CompatibilityService {
 }
 
 // Datos de la canción que suena (current_*) y de la pedida (requested_*).
+// 0 en un BPM significa "desconocido"; current_genre vacío significa que no suena ninguna canción
+// (entonces se evalúa contra el ambiente del local).
 message CompatibilityRequest {
   string venue_type = 1;       // restaurant, cafe, salsa_bar, nightclub, lounge u other
   string current_genre = 2;

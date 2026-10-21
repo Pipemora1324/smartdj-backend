@@ -6,9 +6,9 @@ from app.engine import evaluate
 
 app = FastAPI(title='Smart DJ Engine', version='1.0.0')
 class Compatibility(BaseModel):
-    venue_type: str = 'other'; current_genre: str; requested_genre: str
-    current_bpm: float = Field(gt=0, le=300); requested_bpm: float = Field(gt=0, le=300)
-    current_key: str = 'C'; requested_key: str = 'C'
+    venue_type: str = 'other'; current_genre: str = ''; requested_genre: str
+    current_bpm: float = Field(default=0, ge=0, le=300); requested_bpm: float = Field(default=0, ge=0, le=300)
+    current_key: str = ''; requested_key: str = ''
 class Analysis(BaseModel): audio_url: str
 @app.get('/health')
 def health(): return {'status':'ok','engine':'heuristic+librosa','grpc':bool(os.environ.get('AI_GRPC_PORT'))}
