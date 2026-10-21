@@ -49,3 +49,21 @@ Antes deben estar aplicadas `001` y `002`, de fases anteriores. Mientras falten 
 - `backend/src/mailer.js:15` ("http inseguro"): falso positivo en `jsonTransport`, de la auth anterior que ya no se usa.
 - `smartdj-frontend/scripts/dev-static-server.mjs` (http): servidor solo para desarrollo local.
 - El análisis del frontend en SonarCloud seguirá en rojo hasta que se suba el frontend: el BLOCKER de XSS ya está corregido en local (bloque B).
+
+## 5. Emisora automática (bloques 0–F, 2026-10-21)
+
+- **Render ya publica el backend nuevo:** la comprobación de `/search` responde "Código de establecimiento inválido". Los puntos 1 y 2 de arriba quedan resueltos, y el frontend ya se subió.
+- **SQL (SQL Editor de Supabase, en orden):**
+  1. `database/migrations/006_emisora.sql`
+  2. `database/migrations/007_rls_tablas_existentes.sql`
+
+  Sin la 006, la consola muestra "falta ejecutar la migración 006" (503) y el resto de la app sigue igual.
+- **Render:**
+  - Agregar `JAMENDO_CLIENT_ID`.
+  - Opcionales: `JAMENDO_MONTHLY_BUDGET` y `AUDIUS_API_KEY`.
+- **Cuenta:** crear una aplicación en <https://devportal.jamendo.com> para obtener el Client ID. Audius es opcional: <https://audius.co/api>.
+- **mp3l.jamendo.com dejó de responder durante las pruebas:**
+  - `prod-1` seguía funcionando. La consola cae sola a `prod-1` sin EQ y la emisora sigue sonando.
+  - Si pasa seguido, considerar un proxy de audio en un servicio de pago.
+- **Pistas que no cargan:** se saltan, pero pueden volver a programarse cuando salen de las últimas 30 del historial. Mejora posible: marcarlas como rotas en `track_cache`.
+- **Sin pruebas reales:** no se probó con un Client ID real de Jamendo (no hay cuenta) ni contra tu Supabase. El formato de la respuesta se tomó de la documentación oficial y del Jamendo simulado.
