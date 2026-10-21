@@ -23,6 +23,11 @@ Requiere Docker con Docker Compose.
 | `SUPABASE_JWKS_URL` | `https://<ref>.supabase.co/auth/v1/.well-known/jwks.json`. Claves públicas para validar los tokens (RS256/ES256). No es un secreto. |
 | `SUPABASE_JWT_SECRET` | **Solo** si el proyecto sigue con el secreto HS256 heredado. Es un secreto: va únicamente en Render. No está en `.env.example` a propósito, para que nadie copie un valor de ejemplo como secreto real. |
 
+| `JAMENDO_CLIENT_ID` | Client ID de [Jamendo](https://devportal.jamendo.com) para el catálogo de la emisora. Sin él, el buscador de pistas responde "El catálogo de música no está configurado". |
+| `JAMENDO_MONTHLY_BUDGET` | Opcional, 30000 por defecto. Tope de consultas a Jamendo por mes (contador en Redis); al llegar se usa solo el caché. |
+| `AUDIUS_API_KEY` | Opcional. Bearer token de la API de Audius (segundo proveedor). Solo en el servidor; vacío = Audius desactivado. |
+| `JAMENDO_API_URL` | Solo para pruebas locales con un Jamendo simulado. En producción no se define. |
+
 Hace falta `SUPABASE_JWKS_URL` o `SUPABASE_JWT_SECRET`; lo recomendado es usar claves asimétricas y solo el JWKS.
 
 Las variables `SMTP_*` y `MAIL_FROM` ya no se usan: los correos los envía Supabase.
@@ -39,6 +44,8 @@ Los cambios de esquema están en `database/migrations/` y se pueden ejecutar má
   ```
 
 - **Supabase:** copia el contenido de cada archivo, en orden, en el SQL Editor y ejecútalo.
+- **Emisora:** `006_emisora.sql` crea el caché de pistas, el estado del reproductor y la cola. Sin ella, las rutas del reproductor responden 503 con "falta ejecutar la migración 006".
+- **Seguridad en Supabase:** `007_rls_tablas_existentes.sql` activa RLS en las tablas que ya existían, para que la clave anon (pública) no pueda leerlas por la API REST de Supabase. El backend se conecta como dueño de las tablas y no lo afecta.
 
 ## Autenticación
 
@@ -231,12 +238,76 @@ Para regenerar el lock de Python dentro de Linux:
 docker run --rm -v "$PWD/ai:/work" -w /work python:3.12-slim sh -c "pip install pip-tools==7.4.1 && pip-compile --generate-hashes --allow-unsafe --strip-extras -o requirements.lock requirements.txt"
 ```
 
+## Emisora automática (AutoDJ)
+
+Cada local tiene una emisora que no se detiene. Las decisiones y la evidencia (formato de Jamendo, CORS del audio y términos de uso) están en [DECISIONES_DJ.md](DECISIONES_DJ.md).
+
+```
+Consola del dueño (navegador)           Backend                                Motor (gRPC)
+───────────────────────────────          ───────                                ────────────
+reproduce el audio (mp3l.jamendo.com)    player_state + play_queue (006)
+POST /player/advance ───────────────────▶ avanza la cola ─▶ ensureQueue() ──▶ SuggestNext
+                                          (≥ 5 pistas)        candidatas de     (género, energía,
+                                                              track_cache o     BPM, tonalidad,
+                                                              Jamendo (24 h)    sin repetir)
+Página pública ◀── SSE /venues/:code/events ◀── Redis venue:<id>
+```
+
+- **Catálogo:** `GET /api/venues/:id/tracks/search?q=&genre=&provider=`.
+  - Busca en Jamendo (y en Audius, si está configurado) desde el servidor.
+  - Respuesta: título, artista, género, duración, portada, `audioUrl`, `audioFallbackUrl`, forma de onda y crédito (artista, título, enlace y licencia).
+  - Cada búsqueda queda en caché 24 h en la base de datos (`track_search_cache`), y se guardan solo metadatos, nunca audio.
+  - Rate limit de 30 por minuto por dueño. El tope mensual de Jamendo se cuenta en Redis.
+- **Reproductor:** `/api/venues/:id/player`, solo para el dueño del local.
+
+  | Ruta | Qué hace |
+  | --- | --- |
+  | `GET /` | Estado, pista actual y cola |
+  | `POST /claim` | Una sola consola por local |
+  | `POST /play`, `POST /pause` | Reproduce o pausa |
+  | `POST /skip` | Saltar |
+  | `POST /advance` | Fin de la pista; es idempotente con `fromTrackId` |
+  | `PATCH /` | `volume`, `mode` (`autodj`/`manual`) y `crossfadeSeconds` |
+  | `POST /queue` | Agregar a la cola |
+  | `PATCH /queue` | Reordenar con `{order:[ids]}` |
+  | `DELETE /queue/:itemId` | Quitar de la cola |
+
+- **AutoDJ** (`autodj.js`):
+  - Mantiene al menos 5 pistas en la cola. Solo se ejecuta con eventos (avanzar, saltar, quitar, cambiar de modo, petición aceptada o abrir la consola), nunca con temporizadores.
+  - El motor elige con `SuggestNext` (gRPC) o con `POST /suggest-next` (HTTP) y devuelve la pista, el puntaje, la razón, el punto de transición y la duración del crossfade.
+  - Respaldos:
+    - Si el motor falla, se elige por género y energía del local, y no se le vuelve a preguntar durante un minuto.
+    - Si Jamendo falla, se usa el caché.
+    - Si no hay caché, se usa la pista que suena en la radio de Jamendo del tipo de local.
+- **Peticiones del público:** al aceptar una petición se busca la misma canción en el catálogo libre.
+  - Si está, se intercala después de la siguiente pista, sin dos peticiones seguidas.
+  - Si no está, la respuesta trae `station.queued=false` y el AutoDJ favorece ese género durante 30 minutos.
+- **Página pública:**
+  - `GET /api/public/venues/:code/now` devuelve la pista de la emisora con su crédito y las próximas 5, sin audio ni datos de clientes.
+  - `GET /api/public/venues/:code/events` es un SSE con un solo suscriptor de Redis por proceso. Solo reenvía el tipo de aviso.
+
+## Licencias de la música
+
+- **La API de Jamendo es gratuita solo para uso no comercial.**
+  - Los términos piden dar crédito al artista y a Jamendo y enlazar cada pista a su página. SmartDJ lo muestra en la consola y en la página pública.
+  - Los términos prohíben diseñar la app para cachear el contenido. Por eso solo se guardan metadatos durante 24 h.
+- **Licencias de las pistas:** cada pista tiene su licencia Creative Commons. Las `NC` (no comerciales) quedan marcadas, y cada local puede excluirlas con "Solo licencias comerciales" (`exclude_non_commercial`). Las de Audius se tratan como no comerciales porque su licencia viene vacía.
+- **Este proyecto es académico, no comercial.**
+- **Qué cambia en un uso comercial real:** poner música en un bar, café o restaurante abierto al público es un uso comercial y una comunicación pública. Hace falta:
+  - Una licencia comercial de la API: hablar con Jamendo.
+  - Música con licencia para comercios: Jamendo Licensing ofrece radios "In-Store" y radios `pro` con certificado legal. También sirven pistas cuya licencia permita el uso comercial.
+  - Revisar la gestión colectiva del país; en Colombia, SAYCO-ACINPRO.
+
+  Esto no es asesoría legal: hay que confirmarlo con Jamendo y con un abogado antes de usar SmartDJ en un local real.
+
 ## Pruebas
 
 ```bash
-cd backend && npm test                           # 28 pruebas (Node)
-cd ai && python -m unittest discover -s tests    # 24 pruebas (Python)
+cd backend && npm test                           # 60 pruebas (Node)
+cd ai && python -m unittest discover -s tests    # 40 pruebas (Python; las 2 de /suggest-next por HTTP necesitan fastapi y httpx)
 ```
+
+Las pruebas de punta a punta de la emisora se hicieron con Postgres y Redis en Docker, el motor por gRPC, un Jamendo simulado (`JAMENDO_API_URL`) y la consola en un navegador headless. El audio era real, desde los servidores de Jamendo. Nunca se probó contra producción ni contra el Supabase real.
 
 ## CORS
 
