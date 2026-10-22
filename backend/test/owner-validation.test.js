@@ -62,3 +62,15 @@ test('el reproductor valida consola, posición, volumen, modo y cola', async () 
   assert.throws(() => v.queueAddSchema.parse({ provider: 'jamendo', externalId: '1;DROP' }), /no es válida/);
   assert.throws(() => v.queueOrderSchema.parse({ order: ['no-uuid'] }), Error);
 });
+
+test('valida las acciones sobre peticiones y la consulta pública de estados', async () => {
+  const { requestQueueSchema, requestIdsSchema } = await import('../src/owner-validation.js');
+  assert.deepEqual(requestQueueSchema.parse({}), { next: false });
+  assert.deepEqual(requestQueueSchema.parse({ next: true }), { next: true });
+  assert.throws(() => requestQueueSchema.parse({ next: 'ya' }), /true o false/);
+  const id = '3f0e6a52-6b2a-4c43-9d0f-2b9b5d8f6c11';
+  assert.deepEqual(requestIdsSchema.parse(`${id}, ${id}`), [id]);
+  assert.throws(() => requestIdsSchema.parse('x'), /no es válido/);
+  assert.throws(() => requestIdsSchema.parse(Array(11).fill(0).map((_, i) => `3f0e6a52-6b2a-4c43-9d0f-2b9b5d8f6c${String(i).padStart(2, '0')}`).join(',')), /hasta 10/);
+  assert.throws(() => requestIdsSchema.parse(undefined), /Faltan/);
+});

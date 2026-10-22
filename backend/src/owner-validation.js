@@ -54,3 +54,10 @@ export const queueAddSchema = z.object({
   externalId: z.string().trim().regex(/^[A-Za-z0-9]{1,40}$/, 'La pista elegida no es válida.'),
 });
 export const queueOrderSchema = z.object({ order: z.array(uuidParam).min(1, 'La cola está vacía.').max(100, 'La cola es demasiado larga.') });
+
+// Peticiones dentro de la consola: "Reproducir ahora" (next) o "Añadir a la cola".
+export const requestQueueSchema = z.object({ next: z.boolean({ invalid_type_error: 'next debe ser true o false.' }).optional().default(false) });
+// Página pública: estado de las peticiones propias (ids guardados en el navegador del cliente).
+export const requestIdsSchema = z.string({ required_error: 'Faltan las peticiones.' }).trim()
+  .transform((v) => [...new Set(v.split(',').map((id) => id.trim()).filter(Boolean))])
+  .pipe(z.array(uuidParam).min(1, 'Faltan las peticiones.').max(10, 'Se consultan hasta 10 peticiones.'));
