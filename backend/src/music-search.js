@@ -30,6 +30,9 @@ export const toTrack = (item) => {
     artworkUrl: safeMediaUrl(item.artworkUrl100 ? item.artworkUrl100.replace('100x100bb', '300x300bb') : null),
     previewUrl: safeMediaUrl(item.previewUrl),
     durationMs: Number.isFinite(item.trackTimeMillis) ? item.trackTimeMillis : null,
+    // Origen y enlace a la tienda: los términos de Apple piden atribución y enlace junto al preview.
+    source: 'itunes', kind: 'preview', kindLabel: 'Preview 30 s',
+    storeUrl: safeMediaUrl(item.trackViewUrl),
   };
 };
 
