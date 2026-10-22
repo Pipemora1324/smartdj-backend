@@ -72,18 +72,23 @@ const markRequestPlayed = (client, requestId) => {
 };
 
 // Pasa a la siguiente pista de la cola. endedReason: ended (terminó), user (saltada) o error (no cargó).
+// Una petición solo queda "sonada" cuando sale de la emisora después de sonar (terminó o se saltó);
+// si no cargó (error), sigue pendiente para que el dueño decida.
+const PLAYED_REASONS = new Set(['ended', 'user']);
 const moveToNext = async (client, venueId, state, endedReason, nextStatus = state.status) => {
+  const requestId = state.current_meta?.requestId ?? null;
   if (state.current_track_id) {
+    const withRequest = hasColumn('mix_history.request_id');
     await client.query(
-      `INSERT INTO mix_history(establishment_id, track_id, source, skipped, ended_reason, bpm, musical_key)
-       SELECT $1, id, $3::queue_source, $4, $5, bpm, musical_key FROM track_cache WHERE id=$2`,
-      [venueId, state.current_track_id, state.current_meta?.source ?? null, endedReason !== 'ended', endedReason]);
+      `INSERT INTO mix_history(establishment_id, track_id, source, skipped, ended_reason, bpm, musical_key${withRequest ? ', request_id' : ''})
+       SELECT $1, id, $3::queue_source, $4, $5, bpm, musical_key${withRequest ? ', $6' : ''} FROM track_cache WHERE id=$2`,
+      [venueId, state.current_track_id, state.current_meta?.source ?? null, endedReason !== 'ended', endedReason, ...(withRequest ? [requestId] : [])]);
+    if (requestId && PLAYED_REASONS.has(endedReason)) await markRequestPlayed(client, requestId);
   }
   const next = (await client.query('SELECT * FROM play_queue WHERE establishment_id=$1 ORDER BY position, created_at LIMIT 1 FOR UPDATE', [venueId])).rows[0];
   if (next) {
     await client.query('DELETE FROM play_queue WHERE id=$1', [next.id]);
     await renumber(client, venueId);
-    if (next.request_id) await markRequestPlayed(client, next.request_id);
   }
   const meta = next ? {
     source: next.source, requestId: next.request_id, score: next.score, reason: next.reason,
