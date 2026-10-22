@@ -1,12 +1,11 @@
 import { Router } from 'express';
-import { rateLimit } from 'express-rate-limit';
+import { LIMITS, createLimiter } from '../rate-limits.js';
 import { query } from '../db.js';
 import { AppError } from '../errors.js';
 import { requireSupabaseAuth } from '../supabase-auth.js';
 const router = Router();
 // El registro, el login y la recuperación los hace Supabase Auth desde el frontend; aquí solo queda el perfil.
-const limitMessage = { error: 'Demasiadas solicitudes. Espera unos minutos e intenta de nuevo.' };
-router.use(rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: 'draft-7', legacyHeaders: false, message: limitMessage }));
+router.use(createLimiter(LIMITS.authProfile));
 router.get('/me', requireSupabaseAuth, async (req, res, next) => {
   try {
     const r = await query('SELECT id,email,name,role FROM users WHERE id=$1', [req.user.sub]);
