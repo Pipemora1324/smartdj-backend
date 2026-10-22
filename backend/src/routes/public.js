@@ -15,6 +15,7 @@ import { requestsByIds } from '../station-requests.js';
 import { toStationRequest } from '../player-logic.js';
 import { requestIdsSchema } from '../owner-validation.js';
 import { SEARCH_MIN_FULL, mergeSearchResults, toPublicTrack } from '../catalog-logic.js';
+import { logger } from '../logger.js';
 // BPM y tonalidad son opcionales: "", null o espacios cuentan como "sin dato".
 const emptyToUndefined = (v) => (v === null || (typeof v === 'string' && v.trim() === '') ? undefined : v);
 const router = Router();
@@ -191,7 +192,7 @@ const searchFull = async (venue, term) => {
       await searchCatalog({ provider: 'jamendo', q: term, limit: 10, excludeNonCommercial: Boolean(venue.exclude_non_commercial) })
     ).tracks.map((row) => toPublicTrack(row, { withAudio: false }));
   } catch (err) {
-    console.error('Buscador público sin Jamendo; se usa iTunes:', err.message);
+    logger.error('Buscador público sin Jamendo; se usa iTunes', { err: err });
     return [];
   }
 };
@@ -245,14 +246,14 @@ router.post('/venues/:code/requests', requestLimiter, async (req, res, next) => 
     const row = await insertRequest(venue.id, d.guestName || 'Invitado', song, d);
     void redis
       .publish(`venue:${venue.id}`, JSON.stringify({ type: 'request_created', requestId: row.id }))
-      .catch((err) => console.error('No se pudo avisar la petición nueva:', err.message));
+      .catch((err) => logger.error('No se pudo avisar la petición nueva', { err: err }));
     await publishRequestEvent(row.id, { stage: 'queued', message: 'Tu petición está en la cola.', partialScore: 0 }).catch((err) =>
-      console.error('No se pudo publicar el estado inicial de la petición:', err.message),
+      logger.error('No se pudo publicar el estado inicial de la petición', { err: err }),
     );
     try {
       await requestQueue.add('evaluate', { requestId: row.id }, evaluationJobOptions);
     } catch (err) {
-      console.error('No se pudo encolar la petición:', err.message);
+      logger.error('No se pudo encolar la petición', { err: err });
       throw new AppError(503, 'Recibimos tu petición, pero no pudimos ponerla en la cola. Intenta de nuevo en un momento.');
     }
     res.status(202).json({ id: row.id, status: 'queued', message: 'Tu petición será evaluada por Smart DJ.' });
@@ -354,7 +355,7 @@ router.get('/requests/:id/events', streamLimiter, async (req, res, next) => {
     if (FINAL_STAGES.has(event.stage)) close();
   });
   subscriber.on('error', (err) => {
-    console.error('Error de Redis en SSE:', err.message);
+    logger.error('Error de Redis en SSE', { err: err });
     close();
   });
   try {
@@ -365,7 +366,7 @@ router.get('/requests/:id/events', streamLimiter, async (req, res, next) => {
     send(snapshot);
     if (FINAL_STAGES.has(snapshot.stage)) close();
   } catch (err) {
-    console.error('No se pudo iniciar el SSE:', err.message);
+    logger.error('No se pudo iniciar el SSE', { err: err });
     close();
   }
 });
@@ -408,7 +409,7 @@ router.get('/venues/:code/events', venueStreamLimiter, async (req, res, next) =>
       if (res.headersSent && !closed) res.write(`event: update\ndata: ${JSON.stringify(event)}\n\n`);
     });
   } catch (err) {
-    console.error('No se pudo iniciar el SSE del local:', err.message);
+    logger.error('No se pudo iniciar el SSE del local', { err: err });
   }
   if (!stop) {
     clearInterval(heartbeat);

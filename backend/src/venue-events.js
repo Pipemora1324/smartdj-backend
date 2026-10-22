@@ -1,5 +1,6 @@
 import { redis } from './redis.js';
 import { toPublicEvent } from './player-logic.js';
+import { logger } from './logger.js';
 
 // Avisos en vivo por local para la página pública (SSE). Un solo suscriptor de Redis por proceso
 // (psubscribe venue:*) reparte los mensajes a las conexiones abiertas: no se abre una conexión a Redis por visitante.
@@ -12,7 +13,7 @@ let ready = null;
 const start = () => {
   ready ??= (async () => {
     subscriber = redis.duplicate();
-    subscriber.on('error', (err) => console.error('Error de Redis en los avisos de locales:', err.message));
+    subscriber.on('error', (err) => logger.error('Error de Redis en los avisos de locales', { err: err }));
     subscriber.on('pmessage', (_pattern, channel, message) => {
       const event = toPublicEvent(message);
       const set = listeners.get(channel.slice('venue:'.length));
