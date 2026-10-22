@@ -332,7 +332,7 @@ Página pública ◀── SSE /venues/:code/events ◀── Redis venue:<id>
 
 ```bash
 cd backend && npm test                           # 67 pruebas (Node)
-cd ai && python -m unittest discover -s tests    # 45 pruebas (Python; las 2 de /suggest-next por HTTP necesitan fastapi y httpx)
+cd ai && python -m unittest discover -s tests    # 43 pruebas (Python; las 2 de /suggest-next por HTTP necesitan fastapi y httpx)
 ```
 
 Las pruebas de punta a punta de la emisora se hicieron con Postgres y Redis en Docker, el motor por gRPC, un Jamendo simulado (`JAMENDO_API_URL`) y la consola en un navegador headless. El audio era real, desde los servidores de Jamendo. Nunca se probó contra producción ni contra el Supabase real.
