@@ -5,27 +5,30 @@ import { query } from './db.js';
 import { redis } from './redis.js';
 import { grpcEnabled, suggestNext } from './ai-client.js';
 import { autodjContext, enqueue } from './player.js';
-import { cachedCandidates, findFreeVersion, radioFallback, searchCatalog } from './music-catalog.js';
-import { tagsForGenre, tagsForVenue } from './catalog-logic.js';
+import { cachedCandidates, radioFallback, searchCatalog } from './music-catalog.js';
+import { tagsForGenre, tagsForVenueProfile } from './catalog-logic.js';
 import { MIN_QUEUE, RECENT_LIMIT, defaultTransition, pickFallback, toFeatures } from './player-logic.js';
+import { hasColumn } from './schema-check.js';
+import { pendingRequests, publishRequestChange, resolveRequestTrack, transitionFor } from './station-requests.js';
 
 // AutoDJ: mantiene al menos MIN_QUEUE pistas en la cola de cada local. Solo se ejecuta por eventos
 // (avanzar, saltar, quitar, cambiar a AutoDJ, petición aceptada, primera carga de la consola): sin temporizadores.
 const MIN_CANDIDATES = 20;
 const MAX_CANDIDATES = 120;
 const LOCK_SECONDS = 30;
-const PREFER_SECONDS = 30 * 60;
-const preferKey = (venueId) => `autodj:prefer:${venueId}`;
+// Peticiones que el AutoDJ intercala solo (las que el motor aceptó); las demás las decide el dueño.
+const MAX_REQUESTS_IN_QUEUE = 2;
 // Si el motor falla, no se le vuelve a preguntar durante un minuto: cada intento esperaría el timeout de conexión
 // y la consola tardaría en recibir la respuesta de "saltar" o "avanzar".
 const ENGINE_RETRY_MS = 60 * 1000;
 let engineDownUntil = 0;
 
 // Pide la siguiente pista al motor (gRPC o HTTP); si falla, elige por género y energía sin repetir.
-const choose = async (venue, current, candidates, recentIds, recentArtists, crossfadeSeconds) => {
+const choose = async (venue, current, candidates, recentIds, recentArtists, crossfadeSeconds, hints) => {
   const request = {
     venue_type: venue.kind, current: toFeatures(current), candidates: candidates.slice(0, 200).map(toFeatures),
     recent_ids: recentIds.filter(Boolean), recent_artists: recentArtists.filter(Boolean).slice(0, 10),
+    request_genres: hints.genres, request_artists: hints.artists,
   };
   if (Date.now() >= engineDownUntil) {
     try {
@@ -41,7 +44,7 @@ const choose = async (venue, current, candidates, recentIds, recentArtists, cros
       console.error(`El motor no pudo sugerir la siguiente pista del local ${venue.id}; uso el respaldo por género durante un minuto:`, err.message);
     }
   }
-  const track = pickFallback({ candidates, venueKind: venue.kind, venueTags: tagsForVenue(venue.kind), recentIds, recentArtists });
+  const track = pickFallback({ candidates, venueKind: venue.kind, venueTags: tagsForVenueProfile(venue), recentIds, recentArtists });
   if (!track) return null;
   return { track, score: null, reason: 'Elegida por género y energía del local (motor no disponible).', ...defaultTransition(track.duration_seconds, crossfadeSeconds) };
 };
@@ -67,6 +70,29 @@ const loadCandidates = async (venue, tags, excludeIds) => {
   return candidates;
 };
 
+// Géneros y artistas de las peticiones pendientes: orientan la elección del motor (SuggestNext).
+const requestHints = (requests) => ({
+  genres: [...new Set(requests.map((r) => r.genre).filter((g) => g && g !== 'Sin género'))].slice(0, 10),
+  artists: [...new Set(requests.map((r) => r.artist).filter(Boolean))].slice(0, 10),
+});
+
+// Intercala las peticiones que el motor aceptó (encajan en género y energía), sin repetir pistas recientes.
+const interleaveRequests = async (venue, queue, recentIds, requests) => {
+  let inQueue = queue.filter((q) => q.source === 'request').length;
+  let added = 0;
+  for (const request of requests) {
+    if (inQueue >= MAX_REQUESTS_IN_QUEUE) break;
+    if (request.status !== 'accepted' || request.in_queue || request.playing) continue;
+    const track = await resolveRequestTrack(venue, request).catch((err) => { console.error(`No se pudo preparar la petición ${request.id}:`, err.message); return null; });
+    if (!track || recentIds.has(track.id)) continue;
+    await enqueue(venue.id, track, { source: 'request', requestId: request.id, reason: 'Petición del público: encaja con el ambiente.', ...transitionFor(track) });
+    void publishRequestChange(venue.id, request.id);
+    inQueue += 1;
+    added += 1;
+  }
+  return added;
+};
+
 // Rellena la cola del local. Nunca lanza: un fallo del AutoDJ no debe romper la acción que lo disparó.
 export const ensureQueue = async (venue) => {
   const lockKey = `autodj:lock:${venue.id}`;
@@ -76,21 +102,21 @@ export const ensureQueue = async (venue) => {
   if (!locked) return 0;
   let added = 0;
   try {
-    const { state, queue, recent } = await autodjContext(venue.id, RECENT_LIMIT);
-    if (!state || state.mode !== 'autodj' || queue.length >= MIN_QUEUE) return 0;
-    const preferred = await redis.get(preferKey(venue.id)).catch(() => null);
-    const preferredTags = preferred ? tagsForGenre(preferred) : [];
-    const tags = [...new Set([...preferredTags, ...tagsForVenue(venue.kind)])];
+    let { state, queue, recent } = await autodjContext(venue.id, RECENT_LIMIT);
+    if (!state || state.mode !== 'autodj') return 0;
+    const requests = hasColumn('song_requests.track_id') ? await pendingRequests(venue.id) : [];
+    added += await interleaveRequests(venue, queue, new Set(recent.map((r) => r.track_id)), requests);
+    if (added) ({ state, queue, recent } = await autodjContext(venue.id, RECENT_LIMIT));
+    if (queue.length >= MIN_QUEUE) return added;
+    const hints = requestHints(requests);
+    const tags = [...new Set([...hints.genres.flatMap(tagsForGenre), ...tagsForVenueProfile(venue)])];
     const exclude = [state.track?.id, ...queue.map((q) => q.id)].filter(Boolean);
     let candidates = await loadCandidates(venue, tags, exclude);
     const recentIds = [...recent.map((r) => r.track_id), ...exclude];
     const recentArtists = [...queue.map((q) => q.artist).reverse(), state.track?.artist, ...recent.map((r) => r.artist)];
-    // La referencia de continuidad es la última pista de la cola. Si hay un género pedido que no está
-    // en el catálogo libre, la primera elección lo usa como referencia para acercarse a ese estilo.
     let current = queue.at(-1) ?? state.track ?? null;
-    if (preferredTags.length) current = { ...(current ?? {}), id: current?.id ?? '', genre: preferredTags[0] };
     for (let i = queue.length; i < MIN_QUEUE && candidates.length; i += 1) {
-      const pick = await choose(venue, current, candidates, recentIds, recentArtists, state.crossfade_seconds);
+      const pick = await choose(venue, current, candidates, recentIds, recentArtists, state.crossfade_seconds, hints);
       if (!pick) break;
       await enqueue(venue.id, pick.track, { source: 'autodj', score: pick.score, reason: pick.reason, transitionAtSeconds: pick.transitionAtSeconds, crossfadeSeconds: pick.crossfadeSeconds });
       added += 1;
@@ -99,7 +125,6 @@ export const ensureQueue = async (venue) => {
       recentArtists.unshift(pick.track.artist);
       current = pick.track;
     }
-    if (preferred && added) await redis.del(preferKey(venue.id)).catch(() => {});
   } catch (err) {
     console.error(`El AutoDJ no pudo rellenar la cola del local ${venue.id}:`, err.message);
   } finally {
@@ -109,21 +134,9 @@ export const ensureQueue = async (venue) => {
   return added;
 };
 
-// Petición aceptada por el dueño: si la canción existe en el catálogo libre se intercala en la cola;
-// si no, el AutoDJ favorece su género durante 30 minutos. Devuelve el aviso para el panel.
-export const scheduleAcceptedRequest = async (venue, request) => {
-  try {
-    const track = await findFreeVersion({ title: request.title, artist: request.artist, excludeNonCommercial: venue.exclude_non_commercial });
-    if (track) {
-      const already = await query('SELECT 1 FROM play_queue WHERE establishment_id=$1 AND track_id=$2 UNION ALL SELECT 1 FROM player_state WHERE establishment_id=$1 AND current_track_id=$2 LIMIT 1', [venue.id, track.id]);
-      if (already.rowCount) return { queued: true, message: 'La canción ya está sonando o en la cola de la emisora.' };
-      await enqueue(venue.id, track, { source: 'request', requestId: request.id, reason: 'Pedida por el público.', ...defaultTransition(track.duration_seconds) });
-      return { queued: true, message: 'La canción está en el catálogo libre y entró a la cola de la emisora.' };
-    }
-  } catch (err) {
-    console.error(`No se pudo buscar la petición ${request.id} en el catálogo libre:`, err.message);
-  }
-  if (request.genre) await redis.set(preferKey(venue.id), request.genre, 'EX', PREFER_SECONDS).catch(() => {});
-  void ensureQueue(venue);
-  return { queued: false, message: 'No está en el catálogo libre: la emisora pondrá música de un estilo parecido.' };
+// Después de evaluar una petición (worker): si el local tiene emisora en AutoDJ, se intenta intercalar.
+export const afterRequestEvaluated = async (venueId) => {
+  if (!hasColumn('player_state.establishment_id')) return;
+  const venue = (await query('SELECT * FROM establishments WHERE id=$1', [venueId])).rows[0];
+  if (venue) await ensureQueue(venue);
 };
