@@ -14,18 +14,44 @@ const client = new CompatibilityService(target, grpc.credentials.createInsecure(
 const deadline = () => new Date(Date.now() + 10000);
 
 const cases = [
-  { name: 'compatible', request: { venue_type: 'salsa_bar', current_genre: 'Salsa', requested_genre: 'Bachata', current_bpm: 96, requested_bpm: 100, current_key: 'Am', requested_key: 'C' } },
-  { name: 'requiere puente', request: { venue_type: 'nightclub', current_genre: 'House', requested_genre: 'Jazz', current_bpm: 128, requested_bpm: 80, current_key: 'F#', requested_key: 'C' } },
+  {
+    name: 'compatible',
+    request: {
+      venue_type: 'salsa_bar',
+      current_genre: 'Salsa',
+      requested_genre: 'Bachata',
+      current_bpm: 96,
+      requested_bpm: 100,
+      current_key: 'Am',
+      requested_key: 'C',
+    },
+  },
+  {
+    name: 'requiere puente',
+    request: {
+      venue_type: 'nightclub',
+      current_genre: 'House',
+      requested_genre: 'Jazz',
+      current_bpm: 128,
+      requested_bpm: 80,
+      current_key: 'F#',
+      requested_key: 'C',
+    },
+  },
 ];
 
-const unary = (request) => new Promise((resolve, reject) => client.CheckCompatibility(request, { deadline: deadline() }, (e, r) => (e ? reject(e) : resolve(r))));
-const stream = (requestId, request) => new Promise((resolve, reject) => {
-  const started = Date.now();
-  const call = client.StreamEvaluation({ request_id: requestId, compatibility: request }, { deadline: deadline() });
-  call.on('data', (event) => console.log(`  +${String(Date.now() - started).padStart(4)} ms  ${event.stage.padEnd(16)} ${event.message}`));
-  call.on('error', reject);
-  call.on('end', resolve);
-});
+const unary = (request) =>
+  new Promise((resolve, reject) => client.CheckCompatibility(request, { deadline: deadline() }, (e, r) => (e ? reject(e) : resolve(r))));
+const stream = (requestId, request) =>
+  new Promise((resolve, reject) => {
+    const started = Date.now();
+    const call = client.StreamEvaluation({ request_id: requestId, compatibility: request }, { deadline: deadline() });
+    call.on('data', (event) =>
+      console.log(`  +${String(Date.now() - started).padStart(4)} ms  ${event.stage.padEnd(16)} ${event.message}`),
+    );
+    call.on('error', reject);
+    call.on('end', resolve);
+  });
 
 try {
   console.log(`Servidor gRPC: ${target}\n`);

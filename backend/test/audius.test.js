@@ -4,9 +4,17 @@ import assert from 'node:assert/strict';
 import { createAudiusClient, toAudiusTrack } from '../src/music-providers/audius.js';
 
 const ITEM = {
-  id: 'a5aXGmz', title: 'Return', genre: 'Afro Beat', duration: 170, bpm: 115, musical_key: 'A flat minor',
-  is_streamable: true, permalink: '/nazah/return', user: { name: 'nazah' },
-  artwork: { '480x480': 'https://creatornode.audius.co/content/x/480x480.jpg' }, license: null,
+  id: 'a5aXGmz',
+  title: 'Return',
+  genre: 'Afro Beat',
+  duration: 170,
+  bpm: 115,
+  musical_key: 'A flat minor',
+  is_streamable: true,
+  permalink: '/nazah/return',
+  user: { name: 'nazah' },
+  artwork: { '480x480': 'https://creatornode.audius.co/content/x/480x480.jpg' },
+  license: null,
 };
 
 test('convierte una pista de Audius con BPM, tonalidad y crédito', () => {
@@ -30,7 +38,12 @@ test('descarta pistas no reproducibles o con id raro', () => {
 
 test('la clave va solo en la cabecera, nunca en la URL del audio', async () => {
   let options;
-  const http = { get: async (_url, o) => { options = o; return { data: { data: [ITEM] } }; } };
+  const http = {
+    get: async (_url, o) => {
+      options = o;
+      return { data: { data: [ITEM] } };
+    },
+  };
   const [track] = await createAudiusClient({ apiKey: 'clave-secreta', http }).search({ q: 'return' });
   assert.equal(options.headers.Authorization, 'Bearer clave-secreta');
   assert.ok(!track.audioUrl.includes('clave-secreta'));

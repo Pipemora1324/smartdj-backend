@@ -11,7 +11,11 @@ test('la posición avanza solo mientras suena', () => {
 });
 
 test('reordenar exige los mismos ids de la cola', () => {
-  assert.deepEqual(reorderPositions(['a', 'b', 'c'], ['c', 'a', 'b']), [{ id: 'c', position: 1 }, { id: 'a', position: 2 }, { id: 'b', position: 3 }]);
+  assert.deepEqual(reorderPositions(['a', 'b', 'c'], ['c', 'a', 'b']), [
+    { id: 'c', position: 1 },
+    { id: 'a', position: 2 },
+    { id: 'b', position: 3 },
+  ]);
   assert.throws(() => reorderPositions(['a', 'b'], ['a']), { status: 409 });
   assert.throws(() => reorderPositions(['a', 'b'], ['a', 'a']), { status: 409 });
   assert.throws(() => reorderPositions(['a', 'b'], ['a', 'x']), { status: 409 });
@@ -49,14 +53,18 @@ test('la transición por defecto sale antes del final', () => {
 
 test('convierte una pista guardada en datos para el motor', async () => {
   const { toFeatures } = await import('../src/player-logic.js');
-  assert.deepEqual(toFeatures({ id: 'u1', genre: 'lounge', bpm: '120.50', musical_key: null, energy: 3, duration_seconds: 200, artist: 'Ana' }),
-    { id: 'u1', genre: 'lounge', bpm: 120.5, key: '', energy: 3, duration_seconds: 200, artist: 'Ana' });
+  assert.deepEqual(
+    toFeatures({ id: 'u1', genre: 'lounge', bpm: '120.50', musical_key: null, energy: 3, duration_seconds: 200, artist: 'Ana' }),
+    { id: 'u1', genre: 'lounge', bpm: 120.5, key: '', energy: 3, duration_seconds: 200, artist: 'Ana' },
+  );
   assert.equal(toFeatures(null), undefined);
 });
 
 test('a la página pública solo llega el tipo de aviso', async () => {
   const { toPublicEvent } = await import('../src/player-logic.js');
-  assert.deepEqual(toPublicEvent(JSON.stringify({ type: 'request_evaluated', requestId: 'x', result: { reason: 'secreto' } })), { type: 'request_evaluated' });
+  assert.deepEqual(toPublicEvent(JSON.stringify({ type: 'request_evaluated', requestId: 'x', result: { reason: 'secreto' } })), {
+    type: 'request_evaluated',
+  });
   assert.equal(toPublicEvent('no es json'), null);
   assert.equal(toPublicEvent(JSON.stringify({ type: '<script>' })), null);
   assert.equal(toPublicEvent(JSON.stringify({})), null);
@@ -70,13 +78,25 @@ test('el corte de un preview termina con un fundido de salida', async () => {
 
 test('el estado de una petición combina la evaluación, la cola y lo que suena', async () => {
   const { toStationRequest, requestState } = await import('../src/player-logic.js');
-  const base = { id: 'r1', title: 'T', artist: 'A', genre: 'Salsa', status: 'accepted', guest_name: 'Caro', provider: 'itunes', created_at: 'x' };
+  const base = {
+    id: 'r1',
+    title: 'T',
+    artist: 'A',
+    genre: 'Salsa',
+    status: 'accepted',
+    guest_name: 'Caro',
+    provider: 'itunes',
+    created_at: 'x',
+  };
   assert.equal(requestState(base), 'accepted');
   assert.equal(requestState({ ...base, in_queue: true }), 'in_queue');
   assert.equal(requestState({ ...base, in_queue: true, playing: true }), 'playing');
   assert.equal(requestState({ ...base, status: 'played', playing: true }), 'played');
   const owner = toStationRequest({ ...base, in_queue: true });
-  assert.deepEqual([owner.kind, owner.kindLabel, owner.stateLabel, owner.guestName, owner.fits], ['preview', 'Preview 30 s', 'En la cola', 'Caro', true]);
+  assert.deepEqual(
+    [owner.kind, owner.kindLabel, owner.stateLabel, owner.guestName, owner.fits],
+    ['preview', 'Preview 30 s', 'En la cola', 'Caro', true],
+  );
   assert.equal(toStationRequest({ ...base, track_provider: 'jamendo' }).kindLabel, 'Completa');
   assert.equal('guestName' in toStationRequest(base, { withGuest: false }), false);
 });

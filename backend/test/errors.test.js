@@ -6,11 +6,33 @@ import { AppError, errorHandler, sanitizeForLog } from '../src/errors.js';
 
 let logs;
 const original = { error: console.error, warn: console.warn };
-beforeEach(() => { logs = { error: [], warn: [] }; console.error = (...a) => logs.error.push(a.join(' ')); console.warn = (...a) => logs.warn.push(a.join(' ')); });
-afterEach(() => { console.error = original.error; console.warn = original.warn; });
+beforeEach(() => {
+  logs = { error: [], warn: [] };
+  console.error = (...a) => logs.error.push(a.join(' '));
+  console.warn = (...a) => logs.warn.push(a.join(' '));
+});
+afterEach(() => {
+  console.error = original.error;
+  console.warn = original.warn;
+});
 
 const run = (err) => {
-  const res = { statusCode: 0, body: null, headersSent: false, status(c) { this.statusCode = c; return this; }, json(b) { this.body = b; return this; }, end() { return this; } };
+  const res = {
+    statusCode: 0,
+    body: null,
+    headersSent: false,
+    status(c) {
+      this.statusCode = c;
+      return this;
+    },
+    json(b) {
+      this.body = b;
+      return this;
+    },
+    end() {
+      return this;
+    },
+  };
   errorHandler(err, { method: 'POST', baseUrl: '/api/public', path: '/venues/abc/requests' }, res, () => {});
   return res;
 };
@@ -24,7 +46,11 @@ test('un error inesperado responde 500 genérico y se registra con stack', () =>
 });
 
 test('un error de Postgres registra code y tabla pero no el detail', () => {
-  const pgError = Object.assign(new Error('relation "song_requests" does not exist'), { code: '42P01', table: 'song_requests', detail: 'Key (email)=(ana@correo.co) already exists.' });
+  const pgError = Object.assign(new Error('relation "song_requests" does not exist'), {
+    code: '42P01',
+    table: 'song_requests',
+    detail: 'Key (email)=(ana@correo.co) already exists.',
+  });
   const res = run(pgError);
   assert.equal(res.statusCode, 500);
   assert.match(logs.error[0], /code=42P01 table=song_requests/);
@@ -33,7 +59,11 @@ test('un error de Postgres registra code y tabla pero no el detail', () => {
 
 test('un ZodError responde 400 con su mensaje y no registra stack', () => {
   let err;
-  try { z.object({ title: z.string().min(1, 'Escribe el título.') }).parse({ title: '' }); } catch (e) { err = e; }
+  try {
+    z.object({ title: z.string().min(1, 'Escribe el título.') }).parse({ title: '' });
+  } catch (e) {
+    err = e;
+  }
   const res = run(err);
   assert.equal(res.statusCode, 400);
   assert.equal(res.body.error, 'Escribe el título.');
@@ -51,7 +81,14 @@ test('limpia saltos de línea y caracteres de control antes de registrar', () =>
   assert.equal(sanitizeForLog('/a\r\n[500] falso'), '/a??[500] falso');
   assert.equal(sanitizeForLog('x'.repeat(300)).length, 200);
   assert.equal(sanitizeForLog(undefined), '');
-  const res = { status() { return this; }, json() { return this; } };
+  const res = {
+    status() {
+      return this;
+    },
+    json() {
+      return this;
+    },
+  };
   errorHandler(new AppError(404, 'No existe'), { method: 'GET', baseUrl: '', path: '/x\n[200] OK' }, res, () => {});
   assert.doesNotMatch(logs.warn[0], /\n/);
 });

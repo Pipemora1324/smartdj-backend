@@ -1,10 +1,56 @@
 // Pruebas de la lógica del catálogo (caché, crédito, licencias y coincidencia de peticiones).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildTrackUpsert, filterLicense, isFresh, matchesRequest, monthKey, normalizeText, searchKey, tagsForVenue, toPublicTrack, uniqueTracks } from '../src/catalog-logic.js';
+import {
+  buildTrackUpsert,
+  filterLicense,
+  isFresh,
+  matchesRequest,
+  monthKey,
+  normalizeText,
+  searchKey,
+  tagsForVenue,
+  toPublicTrack,
+  uniqueTracks,
+} from '../src/catalog-logic.js';
 
-const TRACK = { provider: 'jamendo', externalId: '1', title: 'A', artist: 'B', genre: 'lounge', durationSeconds: 200, artworkUrl: null, audioUrl: 'https://mp3l.jamendo.com/?trackid=1&format=mp31', shareUrl: 'https://www.jamendo.com/track/1', licenseUrl: null, licenseLabel: 'CC BY 4.0', nonCommercial: false, bpm: 0, musicalKey: '', energy: 3, waveform: [0.5] };
-const ROW = { id: 'u1', provider: 'jamendo', external_id: '1', title: 'Summer', artist: 'Ana', genre: 'lounge', duration_seconds: 200, artwork_url: null, audio_url: 'https://mp3l.jamendo.com/?trackid=1&format=mp31', waveform: [0.2], energy: 3, bpm: null, musical_key: null, share_url: 'https://www.jamendo.com/track/1', license_label: 'CC BY-NC 3.0', license_url: 'https://creativecommons.org/licenses/by-nc/3.0/', non_commercial: true };
+const TRACK = {
+  provider: 'jamendo',
+  externalId: '1',
+  title: 'A',
+  artist: 'B',
+  genre: 'lounge',
+  durationSeconds: 200,
+  artworkUrl: null,
+  audioUrl: 'https://mp3l.jamendo.com/?trackid=1&format=mp31',
+  shareUrl: 'https://www.jamendo.com/track/1',
+  licenseUrl: null,
+  licenseLabel: 'CC BY 4.0',
+  nonCommercial: false,
+  bpm: 0,
+  musicalKey: '',
+  energy: 3,
+  waveform: [0.5],
+};
+const ROW = {
+  id: 'u1',
+  provider: 'jamendo',
+  external_id: '1',
+  title: 'Summer',
+  artist: 'Ana',
+  genre: 'lounge',
+  duration_seconds: 200,
+  artwork_url: null,
+  audio_url: 'https://mp3l.jamendo.com/?trackid=1&format=mp31',
+  waveform: [0.2],
+  energy: 3,
+  bpm: null,
+  musical_key: null,
+  share_url: 'https://www.jamendo.com/track/1',
+  license_label: 'CC BY-NC 3.0',
+  license_url: 'https://creativecommons.org/licenses/by-nc/3.0/',
+  non_commercial: true,
+};
 
 test('la clave de caché no depende de mayúsculas, acentos ni el orden de los géneros', () => {
   assert.equal(searchKey('jamendo', '  Canción  Ñ ', ['Jazz', 'lounge']), searchKey('jamendo', 'cancion n', ['lounge', 'jazz']));
@@ -34,7 +80,15 @@ test('arma el upsert sin duplicados y con parámetros, no con texto concatenado'
 
 test('la pista pública lleva crédito y licencia; sin audio cuando se pide', () => {
   const track = toPublicTrack(ROW);
-  assert.deepEqual(track.credit, { artist: 'Ana', title: 'Summer', url: 'https://www.jamendo.com/track/1', source: 'Jamendo', license: 'CC BY-NC 3.0', licenseUrl: 'https://creativecommons.org/licenses/by-nc/3.0/', nonCommercial: true });
+  assert.deepEqual(track.credit, {
+    artist: 'Ana',
+    title: 'Summer',
+    url: 'https://www.jamendo.com/track/1',
+    source: 'Jamendo',
+    license: 'CC BY-NC 3.0',
+    licenseUrl: 'https://creativecommons.org/licenses/by-nc/3.0/',
+    nonCommercial: true,
+  });
   assert.equal(track.audioUrl, ROW.audio_url);
   assert.equal(track.audioFallbackUrl, 'https://prod-1.storage.jamendo.com/?trackid=1&format=mp31');
   assert.equal(toPublicTrack({ ...ROW, provider: 'audius' }).audioFallbackUrl, null);
@@ -48,7 +102,10 @@ test('la pista pública lleva crédito y licencia; sin audio cuando se pide', ()
 test('filtra las pistas no comerciales solo si el local lo pide', () => {
   const rows = [ROW, { ...ROW, id: 'u2', non_commercial: false }];
   assert.equal(filterLicense(rows, false).length, 2);
-  assert.deepEqual(filterLicense(rows, true).map((r) => r.id), ['u2']);
+  assert.deepEqual(
+    filterLicense(rows, true).map((r) => r.id),
+    ['u2'],
+  );
 });
 
 test('reconoce la misma canción del catálogo libre', () => {
@@ -77,7 +134,10 @@ test('distingue pistas completas de previews y lo muestra en la pista pública',
   assert.equal(trackKind('jamendo'), 'full');
   assert.equal(trackKind('itunes'), 'preview');
   const preview = publicTrack({ ...ROW, provider: 'itunes', license_label: 'Preview cortesía de iTunes' });
-  assert.deepEqual([preview.kind, preview.kindLabel, preview.credit.source, preview.audioFallbackUrl], ['preview', 'Preview 30 s', 'iTunes', null]);
+  assert.deepEqual(
+    [preview.kind, preview.kindLabel, preview.credit.source, preview.audioFallbackUrl],
+    ['preview', 'Preview 30 s', 'iTunes', null],
+  );
   assert.equal(publicTrack(ROW).kindLabel, 'Completa');
 });
 
@@ -93,24 +153,64 @@ test('saca géneros del ambiente del local y los pone antes que los del tipo', a
 
 test('convierte una petición de iTunes en un corte de 30 s', async () => {
   const { itunesRequestTrack } = await import('../src/catalog-logic.js');
-  const request = { external_id: '1440818839', title: 'Vivir Mi Vida', artist: 'Marc Anthony', genre: 'Salsa', preview_url: 'https://audio-ssl.itunes.apple.com/x.m4a', store_url: 'https://music.apple.com/co/album/x', artwork_url: null, bpm: null, musical_key: null };
+  const request = {
+    external_id: '1440818839',
+    title: 'Vivir Mi Vida',
+    artist: 'Marc Anthony',
+    genre: 'Salsa',
+    preview_url: 'https://audio-ssl.itunes.apple.com/x.m4a',
+    store_url: 'https://music.apple.com/co/album/x',
+    artwork_url: null,
+    bpm: null,
+    musical_key: null,
+  };
   const track = itunesRequestTrack(request);
-  assert.deepEqual([track.provider, track.durationSeconds, track.audioUrl, track.shareUrl, track.nonCommercial], ['itunes', 30, request.preview_url, request.store_url, true]);
+  assert.deepEqual(
+    [track.provider, track.durationSeconds, track.audioUrl, track.shareUrl, track.nonCommercial],
+    ['itunes', 30, request.preview_url, request.store_url, true],
+  );
   assert.equal(itunesRequestTrack({ ...request, preview_url: null }), null);
   assert.equal(itunesRequestTrack(null), null);
 });
 
 test('el buscador público prefiere pistas completas y completa con previews sin repetir', async () => {
   const { mergeSearchResults } = await import('../src/catalog-logic.js');
-  const full = (n) => Array.from({ length: n }, (_, i) => ({ provider: 'jamendo', externalId: String(i), title: `Tema ${i}`, artist: 'Ana', genre: 'pop', artworkUrl: null, durationSeconds: 200, credit: {}, audioUrl: 'https://x' }));
+  const full = (n) =>
+    Array.from({ length: n }, (_, i) => ({
+      provider: 'jamendo',
+      externalId: String(i),
+      title: `Tema ${i}`,
+      artist: 'Ana',
+      genre: 'pop',
+      artworkUrl: null,
+      durationSeconds: 200,
+      credit: {},
+      audioUrl: 'https://x',
+    }));
   const previews = [
-    { trackId: '1', title: 'Tema 0', artist: 'Ana', genre: 'Pop', previewUrl: 'https://audio-ssl.itunes.apple.com/a.m4a', storeUrl: 'https://music.apple.com/x' },
+    {
+      trackId: '1',
+      title: 'Tema 0',
+      artist: 'Ana',
+      genre: 'Pop',
+      previewUrl: 'https://audio-ssl.itunes.apple.com/a.m4a',
+      storeUrl: 'https://music.apple.com/x',
+    },
     { trackId: '2', title: 'Otra', artist: 'Beto', genre: 'Pop', previewUrl: 'https://audio-ssl.itunes.apple.com/b.m4a', storeUrl: null },
   ];
   const few = mergeSearchResults(full(2), previews);
-  assert.deepEqual(few.map((r) => `${r.kindLabel}:${r.title}`), ['Completa:Tema 0', 'Completa:Tema 1', 'Preview 30 s:Otra']);
+  assert.deepEqual(
+    few.map((r) => `${r.kindLabel}:${r.title}`),
+    ['Completa:Tema 0', 'Completa:Tema 1', 'Preview 30 s:Otra'],
+  );
   assert.ok(few.every((r) => !('previewUrl' in r) && !('audioUrl' in r)));
-  assert.equal(mergeSearchResults(full(6), previews).every((r) => r.kind === 'full'), true);
+  assert.equal(
+    mergeSearchResults(full(6), previews).every((r) => r.kind === 'full'),
+    true,
+  );
   assert.equal(mergeSearchResults(full(12), []).length, 10);
-  assert.deepEqual(mergeSearchResults([], previews).map((r) => r.trackId), ['1', '2']);
+  assert.deepEqual(
+    mergeSearchResults([], previews).map((r) => r.trackId),
+    ['1', '2'],
+  );
 });

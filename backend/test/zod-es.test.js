@@ -4,7 +4,10 @@ import assert from 'node:assert/strict';
 import { z } from 'zod';
 import '../src/zod-es.js';
 
-const message = (schema, value) => { const r = schema.safeParse(value); return r.success ? null : r.error.issues[0].message; };
+const message = (schema, value) => {
+  const r = schema.safeParse(value);
+  return r.success ? null : r.error.issues[0].message;
+};
 
 test('tipos y campos faltantes', () => {
   assert.equal(message(z.object({ bpm: z.number() }), { bpm: 'rápido' }), 'El campo "bpm" debe ser un número.');

@@ -1,10 +1,20 @@
 // Pruebas del proveedor Jamendo (sin red: datos de ejemplo y un cliente HTTP falso).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { audioUrlFor, createJamendoClient, licenseFromUrl, reduceWaveform, safeImageUrl, toJamendoTrack } from '../src/music-providers/jamendo.js';
+import {
+  audioUrlFor,
+  createJamendoClient,
+  licenseFromUrl,
+  reduceWaveform,
+  safeImageUrl,
+  toJamendoTrack,
+} from '../src/music-providers/jamendo.js';
 
 const ITEM = {
-  id: '1532771', name: 'Summer Lounge', duration: 214, artist_name: 'Chill Artist',
+  id: '1532771',
+  name: 'Summer Lounge',
+  duration: 214,
+  artist_name: 'Chill Artist',
   image: 'https://usercontent.jamendo.com/?type=album&id=1&width=300',
   audio: 'https://prod-1.storage.jamendo.com/?trackid=1532771&format=mp31&from=app-secreto',
   license_ccurl: 'http://creativecommons.org/licenses/by-nc-sa/3.0/',
@@ -38,7 +48,11 @@ test('el audio va por mp3l (CORS abierto) y nunca lleva el client_id', () => {
 });
 
 test('reconoce licencias comerciales, no comerciales y desconocidas', () => {
-  assert.deepEqual(licenseFromUrl('https://creativecommons.org/licenses/by/4.0/'), { label: 'CC BY 4.0', url: 'https://creativecommons.org/licenses/by/4.0/', nonCommercial: false });
+  assert.deepEqual(licenseFromUrl('https://creativecommons.org/licenses/by/4.0/'), {
+    label: 'CC BY 4.0',
+    url: 'https://creativecommons.org/licenses/by/4.0/',
+    nonCommercial: false,
+  });
   assert.equal(licenseFromUrl('http://creativecommons.org/licenses/by-sa/3.0/').nonCommercial, false);
   assert.equal(licenseFromUrl('http://creativecommons.org/licenses/by-nc-nd/3.0/').nonCommercial, true);
   assert.equal(licenseFromUrl('https://evil.example/licenses/by/4.0/').nonCommercial, true);
@@ -73,7 +87,12 @@ test('descarta pistas sin id o sin nombre y tolera musicinfo ausente', () => {
 
 test('el cliente no llama a Jamendo sin client_id ni con la cuota agotada', async () => {
   let calls = 0;
-  const http = { get: async () => { calls += 1; return { data: { headers: { status: 'success' }, results: [ITEM] } }; } };
+  const http = {
+    get: async () => {
+      calls += 1;
+      return { data: { headers: { status: 'success' }, results: [ITEM] } };
+    },
+  };
   await assert.rejects(createJamendoClient({ clientId: '', http }).search({ q: 'x' }), { status: 503 });
   await assert.rejects(createJamendoClient({ clientId: 'id', http, allowCall: async () => false }).search({ q: 'x' }), { status: 503 });
   assert.equal(calls, 0);
@@ -84,7 +103,12 @@ test('el cliente no llama a Jamendo sin client_id ni con la cuota agotada', asyn
 
 test('el cliente envía los filtros y convierte los errores de Jamendo', async () => {
   let params;
-  const ok = { get: async (_url, options) => { params = options.params; return { data: { headers: { status: 'success' }, results: [] } }; } };
+  const ok = {
+    get: async (_url, options) => {
+      params = options.params;
+      return { data: { headers: { status: 'success' }, results: [] } };
+    },
+  };
   await createJamendoClient({ clientId: 'id', http: ok }).search({ tags: ['lounge', 'jazz'], limit: 50 });
   assert.equal(params.fuzzytags, 'lounge jazz');
   assert.equal(params.include, 'musicinfo');
@@ -96,6 +120,10 @@ test('el cliente envía los filtros y convierte los errores de Jamendo', async (
   assert.deepEqual([params.search, params.boost, params.order], ['vivir', 'popularity_total', undefined]);
   const failed = { get: async () => ({ data: { headers: { status: 'failed', code: 5, error_message: 'x' } } }) };
   await assert.rejects(createJamendoClient({ clientId: 'id', http: failed }).search({ q: 'x' }), { status: 502 });
-  const timeout = { get: async () => { throw Object.assign(new Error('timeout'), { code: 'ECONNABORTED' }); } };
+  const timeout = {
+    get: async () => {
+      throw Object.assign(new Error('timeout'), { code: 'ECONNABORTED' });
+    },
+  };
   await assert.rejects(createJamendoClient({ clientId: 'id', http: timeout }).search({ q: 'x' }), { status: 504 });
 });

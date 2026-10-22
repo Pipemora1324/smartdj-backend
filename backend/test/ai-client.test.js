@@ -10,8 +10,22 @@ const { CompatibilityService } = grpc.loadPackageDefinition(
   protoLoader.loadSync(PROTO_PATH, { keepCase: true, longs: Number, enums: String, defaults: true }),
 ).smartdj.compatibility.v1;
 
-const RESULT = { accepted: false, score: 58, reason: 'Transición directa no recomendada (58/100).', bridge_sequence: [{ position: 1, genre: 'dance', target_bpm: 115, purpose: 'Ajustar' }], profile: 'dance' };
-const REQUEST = { venue_type: 'nightclub', current_genre: 'House', requested_genre: 'Salsa', current_bpm: 124, requested_bpm: 96, current_key: 'Am', requested_key: 'C' };
+const RESULT = {
+  accepted: false,
+  score: 58,
+  reason: 'Transición directa no recomendada (58/100).',
+  bridge_sequence: [{ position: 1, genre: 'dance', target_bpm: 115, purpose: 'Ajustar' }],
+  profile: 'dance',
+};
+const REQUEST = {
+  venue_type: 'nightclub',
+  current_genre: 'House',
+  requested_genre: 'Salsa',
+  current_bpm: 124,
+  requested_bpm: 96,
+  current_key: 'Am',
+  requested_key: 'C',
+};
 let server;
 let mode = 'ok';
 let client;
@@ -21,7 +35,8 @@ before(async () => {
   server.addService(CompatibilityService.service, {
     CheckCompatibility(call, callback) {
       if (mode === 'slow') return setTimeout(() => callback(null, RESULT), 500);
-      if (call.request.requested_bpm <= 0) return callback({ code: grpc.status.INVALID_ARGUMENT, details: 'requested_bpm debe ser mayor que 0' });
+      if (call.request.requested_bpm <= 0)
+        return callback({ code: grpc.status.INVALID_ARGUMENT, details: 'requested_bpm debe ser mayor que 0' });
       callback(null, RESULT);
     },
     StreamEvaluation(call) {
@@ -35,18 +50,33 @@ before(async () => {
       if (mode === 'slow') return setTimeout(() => callback(null, {}), 500);
       if (!call.request.candidates.length) return callback({ code: grpc.status.INVALID_ARGUMENT, details: 'Faltan candidatas.' });
       const [first] = call.request.candidates;
-      callback(null, { track_id: first?.id ?? '', score: 80, reason: `Siguiente después de ${call.request.current?.id || 'nada'}.`, transition_at_seconds: 190, crossfade_seconds: 8 });
+      callback(null, {
+        track_id: first?.id ?? '',
+        score: 80,
+        reason: `Siguiente después de ${call.request.current?.id || 'nada'}.`,
+        transition_at_seconds: 190,
+        crossfade_seconds: 8,
+      });
     },
   });
-  const port = await new Promise((resolve, reject) => server.bindAsync('127.0.0.1:0', grpc.ServerCredentials.createInsecure(), (e, p) => (e ? reject(e) : resolve(p))));
+  const port = await new Promise((resolve, reject) =>
+    server.bindAsync('127.0.0.1:0', grpc.ServerCredentials.createInsecure(), (e, p) => (e ? reject(e) : resolve(p))),
+  );
   Object.assign(process.env, {
-    DATABASE_URL: 'postgres://x:y@localhost/z', REDIS_URL: 'redis://localhost:6379', AI_SERVICE_URL: 'http://localhost:1',
-    SUPABASE_URL: 'https://test.supabase.co', SUPABASE_JWKS_URL: 'http://localhost:1/jwks', AI_GRPC_URL: `127.0.0.1:${port}`,
+    DATABASE_URL: 'postgres://x:y@localhost/z',
+    REDIS_URL: 'redis://localhost:6379',
+    AI_SERVICE_URL: 'http://localhost:1',
+    SUPABASE_URL: 'https://test.supabase.co',
+    SUPABASE_JWKS_URL: 'http://localhost:1/jwks',
+    AI_GRPC_URL: `127.0.0.1:${port}`,
   });
   client = await import('../src/ai-client.js');
 });
 
-after(() => { client?.closeAiClient(); server?.forceShutdown(); });
+after(() => {
+  client?.closeAiClient();
+  server?.forceShutdown();
+});
 
 test('el cliente usa gRPC cuando AI_GRPC_URL está definido', () => {
   assert.equal(client.grpcEnabled(), true);
@@ -70,12 +100,18 @@ test('un stream sin RESULT termina con error 502', async () => {
 
 test('el timeout se convierte en error 504', async () => {
   mode = 'slow';
-  await assert.rejects(client.suggestNext({ venue_type: 'cafe', candidates: [{ id: 'a' }] }, { timeoutMs: 100 }), (err) => err.status === 504 && err.extra.grpcCode === 'DEADLINE_EXCEEDED');
+  await assert.rejects(
+    client.suggestNext({ venue_type: 'cafe', candidates: [{ id: 'a' }] }, { timeoutMs: 100 }),
+    (err) => err.status === 504 && err.extra.grpcCode === 'DEADLINE_EXCEEDED',
+  );
 });
 
 test('INVALID_ARGUMENT se convierte en error 400', async () => {
   mode = 'ok';
-  await assert.rejects(client.suggestNext({ venue_type: 'cafe', candidates: [] }), (err) => err.status === 400 && /Faltan candidatas/.test(err.message));
+  await assert.rejects(
+    client.suggestNext({ venue_type: 'cafe', candidates: [] }),
+    (err) => err.status === 400 && /Faltan candidatas/.test(err.message),
+  );
 });
 
 test('sin servidor responde 503 (UNAVAILABLE)', async () => {
@@ -85,6 +121,18 @@ test('sin servidor responde 503 (UNAVAILABLE)', async () => {
 });
 
 test('SuggestNext devuelve la pista elegida por el motor', async () => {
-  const result = await client.suggestNext({ venue_type: 'cafe', current: { id: 'now', energy: 2 }, candidates: [{ id: 'a', energy: 3 }], recent_ids: [], recent_artists: [] });
-  assert.deepEqual(result, { track_id: 'a', score: 80, reason: 'Siguiente después de now.', transition_at_seconds: 190, crossfade_seconds: 8 });
+  const result = await client.suggestNext({
+    venue_type: 'cafe',
+    current: { id: 'now', energy: 2 },
+    candidates: [{ id: 'a', energy: 3 }],
+    recent_ids: [],
+    recent_artists: [],
+  });
+  assert.deepEqual(result, {
+    track_id: 'a',
+    score: 80,
+    reason: 'Siguiente después de now.',
+    transition_at_seconds: 190,
+    crossfade_seconds: 8,
+  });
 });
