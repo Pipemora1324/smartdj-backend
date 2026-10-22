@@ -20,6 +20,13 @@ export const toEvaluationRequest = (item, current) => ({
 
 // La canción que suena ahora en el local: la última marcada como sonada.
 const currentSong = async (venueId) => {
+  // Con emisora (006), lo que suena es la pista actual del reproductor, no la última petición sonada.
+  if (hasColumn('player_state.establishment_id')) {
+    // Si la emisora está detenida, no suena nada: se evalúa contra el ambiente del local.
+    const station = await query(`SELECT s.status, t.genre, t.bpm, t.musical_key FROM player_state s LEFT JOIN track_cache t ON t.id = s.current_track_id
+      WHERE s.establishment_id=$1`, [venueId]);
+    if (station.rowCount) return station.rows[0].status !== 'stopped' && station.rows[0].genre !== null ? station.rows[0] : null;
+  }
   const order = hasColumn('song_requests.played_at') ? 'played_at DESC NULLS LAST, evaluated_at DESC' : 'evaluated_at DESC NULLS LAST';
   const r = await query(`SELECT genre, bpm, musical_key FROM song_requests WHERE establishment_id=$1 AND status='played' ORDER BY ${order} LIMIT 1`, [venueId]);
   return r.rows[0] || null;
