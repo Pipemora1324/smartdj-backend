@@ -14,6 +14,7 @@ import {
   searchKey,
   uniqueTracks,
 } from './catalog-logic.js';
+import { logger } from './logger.js';
 
 // Catálogo de la emisora: busca en el proveedor solo si la búsqueda no está en caché (24 h, en la base de datos).
 // Guarda metadatos, nunca audio (términos de Jamendo, ver DECISIONES_DJ.md).
@@ -26,12 +27,12 @@ export const allowJamendoCall = async (budget = config.jamendoMonthlyBudget) => 
     const count = await redis.incr(key);
     if (count === 1) await redis.expire(key, 40 * 24 * 60 * 60);
     if (count > budget) {
-      if (count === budget + 1) console.error(`Se alcanzó el tope mensual de ${budget} consultas a Jamendo; se usa solo el caché.`);
+      if (count === budget + 1) logger.error('Se alcanzó el tope mensual de consultas a Jamendo; se usa solo el caché', { budget });
       return false;
     }
     return true;
   } catch (err) {
-    console.error('No se pudo contar la consulta a Jamendo:', err.message);
+    logger.error('No se pudo contar la consulta a Jamendo', { err: err });
     return true;
   }
 };
@@ -89,7 +90,7 @@ export const searchCatalog = async ({ provider = 'jamendo', q = '', tags = [], l
     return { tracks: filterLicense(rows, excludeNonCommercial), source: 'provider' };
   } catch (err) {
     if (!entry) throw err;
-    console.error(`Proveedor ${provider} no disponible; se usa el caché vencido:`, err.message);
+    logger.warn('Proveedor no disponible; se usa el caché vencido', { provider, err });
     return { tracks: filterLicense(await loadTracks(entry.track_ids), excludeNonCommercial), source: 'stale-cache' };
   }
 };
@@ -124,7 +125,7 @@ export const radioFallback = async (venueKind) => {
       const track = await providers.jamendo.radioTrack(name);
       if (track) return (await upsertTracks([track]))[0];
     } catch (err) {
-      console.error(`Radio ${name} de Jamendo no disponible:`, err.message);
+      logger.warn('Radio de Jamendo no disponible', { radio: name, err });
     }
   }
   return null;

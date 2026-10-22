@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { AppError } from '../errors.js';
+import { logger } from '../logger.js';
 
 // Segundo proveedor (opcional): solo se activa con AUDIUS_API_KEY, que se usa únicamente en el servidor.
 // Audius sí trae BPM y tonalidad; su licencia suele venir vacía, así que se trata como no comercial.
@@ -58,7 +59,7 @@ export const createAudiusClient = ({ apiKey, timeoutMs = 5000, http = axios } = 
       const { data } = await http.get(`${API_URL}${path}`, { params, timeout: timeoutMs, headers: { Authorization: `Bearer ${apiKey}` } });
       return (Array.isArray(data?.data) ? data.data : []).map(toAudiusTrack).filter(Boolean).slice(0, limit);
     } catch (err) {
-      console.error('Error consultando Audius:', err.code || err.message);
+      logger.error('Error consultando Audius', { err });
       throw new AppError(502, 'Audius no está disponible en este momento.');
     }
   },

@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { AppError } from './errors.js';
+import { logger } from './logger.js';
 
 // Búsqueda de canciones en iTunes Search API, siempre desde el servidor (el navegador nunca llama a APIs externas).
 const ITUNES_URL = 'https://itunes.apple.com';
@@ -43,7 +44,7 @@ const callItunes = async (path, params) => {
     const { data } = await axios.get(`${ITUNES_URL}${path}`, { params: { country: COUNTRY, ...params }, timeout: TIMEOUT_MS });
     return Array.isArray(data?.results) ? data.results : [];
   } catch (err) {
-    console.error(`Error consultando iTunes ${path}:`, err.code || err.message);
+    logger.error('Error consultando iTunes', { path, err });
     if (err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT')
       throw new AppError(504, 'El buscador de canciones tardó demasiado. Intenta de nuevo.');
     throw new AppError(502, 'El buscador de canciones no está disponible en este momento.');
