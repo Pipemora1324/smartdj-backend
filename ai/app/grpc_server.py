@@ -83,7 +83,8 @@ class CompatibilityService(pb2_grpc.CompatibilityServiceServicer):
         validate_suggest(request, context)
         current = track_dict(request.current) if request.current.id else None
         result = suggest_next(request.venue_type, current, [track_dict(c) for c in request.candidates],
-                              list(request.recent_ids), list(request.recent_artists))
+                              list(request.recent_ids), list(request.recent_artists),
+                              list(request.request_genres), list(request.request_artists))
         return pb2.SuggestNextResult(**result) if result else pb2.SuggestNextResult(reason='No hay candidatas disponibles.')
 
 

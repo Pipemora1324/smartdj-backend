@@ -20,6 +20,7 @@ class SuggestNext(BaseModel):
     venue_type: str = 'other'; current: Optional[TrackFeatures] = None
     candidates: List[TrackFeatures] = Field(default_factory=list, max_length=MAX_CANDIDATES)
     recent_ids: List[str] = Field(default_factory=list); recent_artists: List[str] = Field(default_factory=list)
+    request_genres: List[str] = Field(default_factory=list); request_artists: List[str] = Field(default_factory=list)
 @app.get('/health')
 def health(): return {'status':'ok','engine':'heuristic+librosa','grpc':bool(os.environ.get('AI_GRPC_PORT'))}
 @app.post('/compatibility')
@@ -28,7 +29,8 @@ def compatibility(data: Compatibility):
 @app.post('/suggest-next')
 def suggest(data: SuggestNext):
     current = data.current.model_dump() if data.current and data.current.id else None
-    result = suggest_next(data.venue_type, current, [c.model_dump() for c in data.candidates], data.recent_ids, data.recent_artists)
+    result = suggest_next(data.venue_type, current, [c.model_dump() for c in data.candidates], data.recent_ids, data.recent_artists,
+                          data.request_genres, data.request_artists)
     return result or {'track_id': '', 'score': 0, 'reason': 'No hay candidatas disponibles.', 'transition_at_seconds': 0, 'crossfade_seconds': 0}
 @app.post('/analyze')
 def analyze(payload: Analysis):

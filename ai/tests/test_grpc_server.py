@@ -76,5 +76,13 @@ class GrpcServerTest(unittest.TestCase):
         self.assertEqual(ctx.exception.code(), grpc.StatusCode.INVALID_ARGUMENT)
 
 
+    def test_suggest_next_uses_request_hints(self):
+        candidates = [pb2.TrackFeatures(id='lounge', genre='lounge', energy=3, artist='Ana'),
+                      pb2.TrackFeatures(id='salsa', genre='salsa', energy=3, artist='Beto')]
+        plain = self.stub.SuggestNext(pb2.SuggestNextRequest(venue_type='other', candidates=candidates), timeout=5)
+        hinted = self.stub.SuggestNext(pb2.SuggestNextRequest(venue_type='other', candidates=candidates, request_genres=['Salsa']), timeout=5)
+        self.assertEqual((plain.track_id, hinted.track_id), ('lounge', 'salsa'))
+
+
 if __name__ == '__main__':
     unittest.main()
