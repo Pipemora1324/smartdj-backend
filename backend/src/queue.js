@@ -6,6 +6,7 @@ import { config } from './config.js';
 import { hasColumn } from './schema-check.js';
 import { grpcEnabled, streamEvaluation } from './ai-client.js';
 import { publishRequestEvent, toLiveEvent } from './request-status.js';
+import { afterRequestEvaluated } from './autodj.js';
 export const requestQueue = new Queue('music-requests', { connection: redis });
 export const evaluationJobOptions = { attempts: 3, backoff: { type: 'exponential', delay: 2000 }, removeOnComplete: 100, removeOnFail: 100 };
 
@@ -42,6 +43,8 @@ const worker = new Worker('music-requests', async job => {
     : await evaluateOverHttp(item.id, request);
   await query('UPDATE song_requests SET status=$1, ai_reason=$2, bridge_sequence=$3, evaluated_at=NOW() WHERE id=$4',[ai.accepted?'accepted':'bridging',ai.reason,JSON.stringify(ai.bridge_sequence),item.id]);
   await redis.publish(`venue:${item.establishment_id}`, JSON.stringify({type:'request_evaluated', requestId:item.id, result:ai}));
+  // Emisora: en AutoDJ, una petición que encaja se intercala sola en la cola.
+  void afterRequestEvaluated(item.establishment_id).catch((err) => console.error('No se pudo intercalar la petición evaluada:', err.message));
 }, {
   connection: createWorkerConnection(),
   // Con la cola vacía, BullMQ consulta Redis en bucle. drainDelay (segundos) y stalledInterval (ms) más largos
