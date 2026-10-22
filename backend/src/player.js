@@ -142,14 +142,16 @@ export const updateSettings = (venueId, { volume, mode, crossfadeSeconds }) => m
    WHERE establishment_id=$1`, [venueId, volume ?? null, mode ?? null, crossfadeSeconds ?? null]));
 
 // Agrega una pista al final de la cola (o en la posición de una petición, intercalada).
-export const enqueue = (venueId, track, { source = 'manual', requestId = null, score = null, reason = null, transitionAtSeconds = null, crossfadeSeconds = null } = {}) =>
+// next=true la pone primera ("Reproducir ahora": la consola pasa a ella enseguida).
+export const enqueue = (venueId, track, { source = 'manual', requestId = null, score = null, reason = null, transitionAtSeconds = null, crossfadeSeconds = null, next = false } = {}) =>
   mutate(venueId, async (client) => {
     const queue = (await client.query('SELECT id, source FROM play_queue WHERE establishment_id=$1 ORDER BY position, created_at', [venueId])).rows;
     const inserted = (await client.query(
       `INSERT INTO play_queue(establishment_id, track_id, position, source, request_id, score, reason, transition_at_seconds, crossfade_seconds)
        VALUES($1,$2,$3,$4::queue_source,$5,$6,$7,$8,$9) RETURNING id`,
       [venueId, track.id, queue.length + 1, source, requestId, score, reason, transitionAtSeconds, crossfadeSeconds])).rows[0];
-    if (source === 'request') await applyOrder(client, venueId, insertAt(queue.map((q) => q.id), requestInsertIndex(queue), inserted.id));
+    if (next) await applyOrder(client, venueId, insertAt(queue.map((q) => q.id), 0, inserted.id));
+    else if (source === 'request') await applyOrder(client, venueId, insertAt(queue.map((q) => q.id), requestInsertIndex(queue), inserted.id));
     return inserted.id;
   });
 
