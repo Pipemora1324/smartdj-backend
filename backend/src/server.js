@@ -1,51 +1,19 @@
-import './zod-es.js';
-import express from 'express';
-import helmet from 'helmet';
-import cors from 'cors';
-import { config, isAllowedOrigin } from './config.js';
+import { config } from './config.js';
+import { createApp } from './app.js';
 import { pool } from './db.js';
 import { redis } from './redis.js';
-import { AppError, errorHandler, notFound, sanitizeForLog } from './errors.js';
-import authRoutes from './routes/auth.js';
-import venueRoutes from './routes/venues.js';
-import playerRoutes from './routes/player.js';
-import publicRoutes from './routes/public.js';
-import publicLiveRoutes from './routes/public-live.js';
-import './queue.js';
+import { closeQueue } from './queue.js';
 import { checkSchema } from './schema-check.js';
 import { checkAiConnection } from './ai-client.js';
 import { logger } from './logger.js';
-const app = express();
-app.set('trust proxy', 1);
-app.use(helmet({ crossOriginResourcePolicy: false }));
-// CORS solo para los orígenes conocidos; la sesión viaja en el header Authorization, sin cookies.
-const corsOptions = {
-  origin: (origin, cb) => {
-    if (isAllowedOrigin(origin)) return cb(null, true);
-    logger.warn('CORS rechazó un origen; si es el frontend, agrégalo a CORS_ORIGIN', { origin: sanitizeForLog(origin) });
-    cb(new AppError(403, 'Origen no permitido por CORS'));
-  },
-  maxAge: 600,
-};
-app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
-// Los cuerpos más grandes de la API (reordenar la cola) caben de sobra en 32 kB.
-app.use(express.json({ limit: '32kb' }));
-app.get('/api/health', (_q, s) => s.json({ status: 'ok' }));
-app.use('/api/auth', authRoutes);
-app.use('/api/venues/:id/player', playerRoutes);
-app.use('/api/venues', venueRoutes);
-app.use('/api/public', publicRoutes);
-app.use('/api/public', publicLiveRoutes);
-app.use(notFound);
-app.use(errorHandler);
-const server = app.listen(config.port, () => {
+const server = createApp().listen(config.port, () => {
   logger.info('API escuchando', { port: config.port });
   checkSchema().catch((err) => logger.error('Falló la verificación del esquema', { err: err }));
   checkAiConnection().catch((err) => logger.error('Falló el diagnóstico del motor', { err: err }));
 });
 const close = async () => {
   server.close();
+  await closeQueue().catch(() => {});
   await pool.end();
   redis.disconnect();
 };

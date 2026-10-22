@@ -90,6 +90,12 @@ const worker = new Worker(
   },
 );
 
+// Cierre ordenado: el worker termina el trabajo en curso antes de soltar sus conexiones a Redis.
+export const closeQueue = async () => {
+  await worker.close();
+  await requestQueue.close();
+};
+
 // Si se agotan los reintentos, el navegador recibe un estado final de error en lugar de quedarse esperando.
 worker.on('failed', (job, err) => {
   logger.error('Evaluación fallida', { attempt: job?.attemptsMade, requestId: job?.data?.requestId, err });
