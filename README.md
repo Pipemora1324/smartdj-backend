@@ -45,6 +45,7 @@ Los cambios de esquema están en `database/migrations/` y se pueden ejecutar má
 
 - **Supabase:** copia el contenido de cada archivo, en orden, en el SQL Editor y ejecútalo.
 - **Emisora:** `006_emisora.sql` crea el caché de pistas, el estado del reproductor y la cola. Sin ella, las rutas del reproductor responden 503 con "falta ejecutar la migración 006".
+- **Peticiones en la emisora:** `008_peticiones_emisora.sql` guarda el origen de cada petición (Jamendo o iTunes) y su pista, y enlaza el historial con la petición que sonó. También corrige las peticiones marcadas como "Sonada" que nunca sonaron. Requiere la 006.
 - **Seguridad en Supabase:** `007_rls_tablas_existentes.sql` activa RLS en las tablas que ya existían, para que la clave anon (pública) no pueda leerlas por la API REST de Supabase. El backend se conecta como dueño de las tablas y no lo afecta.
 
 ## Autenticación
@@ -286,12 +287,39 @@ Página pública ◀── SSE /venues/:code/events ◀── Redis venue:<id>
   - `GET /api/public/venues/:code/now` devuelve la pista de la emisora con su crédito y las próximas 5, sin audio ni datos de clientes.
   - `GET /api/public/venues/:code/events` es un SSE con un solo suscriptor de Redis por proceso. Solo reenvía el tipo de aviso.
 
+## Peticiones del público en la emisora
+
+**Flujo del cliente** (link o QR del local, sin cuenta):
+1. Busca una canción. Primero aparecen las pistas **Completa** (Jamendo); si hay menos de 5, se completan con **Preview 30 s** (iTunes).
+2. La pide (`POST /api/public/venues/:code/requests` con `{provider:'jamendo', externalId}` o `{trackId}` de iTunes). El motor la evalúa en vivo contra lo que suena en la emisora o, si está detenida, contra el ambiente del local.
+3. En "Tus peticiones" ve su estado: En evaluación, Esperando turno, El DJ la revisará, En la cola, Sonando ahora, Sonada o Descartada. Viene de `GET /api/public/venues/:code/requests?ids=` y se actualiza por SSE.
+
+**Flujo del dueño** (pestaña Peticiones de la consola):
+- `GET /player/requests` lista las pendientes de las últimas 24 h, con portada, origen, quién la pidió, estado y si encaja.
+- Acciones:
+
+  | Acción | Ruta |
+  | --- | --- |
+  | Reproducir ahora | `POST /player/requests/:id/queue {next:true}` |
+  | Añadir a la cola | `POST /player/requests/:id/queue` |
+  | Descartar | `POST /player/requests/:id/dismiss` |
+
+- **En AutoDJ**, las peticiones que el motor aceptó se intercalan solas: como mucho dos en la cola, nunca seguidas y sin repetir pistas recientes. Las que no encajan esperan la decisión del dueño. **En Manual** decide siempre el dueño.
+- **Qué suena:**
+  - Una petición de Jamendo suena completa.
+  - Una de iTunes busca primero su versión completa en Jamendo. Si no existe, suena como **corte de 30 s** con fundido de salida de 4 s, y después sigue el AutoDJ.
+- **"Sonada"** solo se marca cuando la petición sale de la emisora después de sonar (terminó o se saltó), y queda en `mix_history.request_id`. El dueño ya no puede marcarla a mano.
+- **Lo pedido orienta al AutoDJ:** los géneros y artistas de las peticiones pendientes viajan a `SuggestNext` (`request_genres`, `request_artists`) y suben el puntaje de las candidatas parecidas. La razón queda en la cola, por ejemplo "se parece a lo que pidió el público".
+
 ## Licencias de la música
 
 - **La API de Jamendo es gratuita solo para uso no comercial.**
   - Los términos piden dar crédito al artista y a Jamendo y enlazar cada pista a su página. SmartDJ lo muestra en la consola y en la página pública.
   - Los términos prohíben diseñar la app para cachear el contenido. Por eso solo se guardan metadatos durante 24 h.
 - **Licencias de las pistas:** cada pista tiene su licencia Creative Commons. Las `NC` (no comerciales) quedan marcadas, y cada local puede excluirlas con "Solo licencias comerciales" (`exclude_non_commercial`). Las de Audius se tratan como no comerciales porque su licencia viene vacía.
+- **Previews de iTunes:** los términos de la iTunes Search API permiten los previews solo para promocionar la tienda, "not for entertainment purposes", en streaming, sin guardarlos y con atribución y enlace a Apple.
+  - Ponerlos en la emisora como "corte de petición" va contra eso. Se hizo por pedido del proyecto académico, con atribución ("Preview cortesía de iTunes") y enlace a la canción.
+  - **Para un uso real hay que quitarlo.**
 - **Este proyecto es académico, no comercial.**
 - **Qué cambia en un uso comercial real:** poner música en un bar, café o restaurante abierto al público es un uso comercial y una comunicación pública. Hace falta:
   - Una licencia comercial de la API: hablar con Jamendo.
@@ -303,8 +331,8 @@ Página pública ◀── SSE /venues/:code/events ◀── Redis venue:<id>
 ## Pruebas
 
 ```bash
-cd backend && npm test                           # 60 pruebas (Node)
-cd ai && python -m unittest discover -s tests    # 40 pruebas (Python; las 2 de /suggest-next por HTTP necesitan fastapi y httpx)
+cd backend && npm test                           # 67 pruebas (Node)
+cd ai && python -m unittest discover -s tests    # 45 pruebas (Python; las 2 de /suggest-next por HTTP necesitan fastapi y httpx)
 ```
 
 Las pruebas de punta a punta de la emisora se hicieron con Postgres y Redis en Docker, el motor por gRPC, un Jamendo simulado (`JAMENDO_API_URL`) y la consola en un navegador headless. El audio era real, desde los servidores de Jamendo. Nunca se probó contra producción ni contra el Supabase real.
