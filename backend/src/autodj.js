@@ -110,7 +110,8 @@ export const ensureQueue = async (venue) => {
     if (queue.length >= MIN_QUEUE) return added;
     const hints = requestHints(requests);
     const tags = [...new Set([...hints.genres.flatMap(tagsForGenre), ...tagsForVenueProfile(venue)])];
-    const exclude = [state.track?.id, ...queue.map((q) => q.id)].filter(Boolean);
+    // Las pistas de peticiones pendientes no son candidatas: deben sonar como petición (y quedar "sonadas").
+    const exclude = [state.track?.id, ...queue.map((q) => q.id), ...requests.map((r) => r.track_id)].filter(Boolean);
     let candidates = await loadCandidates(venue, tags, exclude);
     const recentIds = [...recent.map((r) => r.track_id), ...exclude];
     const recentArtists = [...queue.map((q) => q.artist).reverse(), state.track?.artist, ...recent.map((r) => r.artist)];
