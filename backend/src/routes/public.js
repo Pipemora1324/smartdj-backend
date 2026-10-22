@@ -2,6 +2,7 @@ import { Router } from 'express'; import { z } from 'zod'; import { query } from
 import { rateLimit } from 'express-rate-limit'; import { redis } from '../redis.js'; import { FINAL_STAGES, publishRequestEvent, readRequestStatus, statusChannel } from '../request-status.js';
 import { lookupTrack, searchTracks } from '../music-search.js'; import { hasColumn } from '../schema-check.js';
 import { playerSnapshot } from '../player.js'; import { listenVenue } from '../venue-events.js';
+import { availableProviders, searchCatalog } from '../music-catalog.js'; import { SEARCH_MIN_FULL, mergeSearchResults, toPublicTrack } from '../catalog-logic.js';
 // BPM y tonalidad son opcionales: "", null o espacios cuentan como "sin dato".
 const emptyToUndefined=(v)=>(v===null||(typeof v==='string'&&v.trim()==='')?undefined:v);
 const router=Router();
@@ -21,7 +22,7 @@ const nowLimiter=limiter(120,'Demasiadas consultas. Espera un momento.');
 const SEARCH_CACHE_SECONDS=600;
 
 const findVenue=async(code)=>{
-  const r=await query('SELECT id,name,kind,ambience,public_code FROM establishments WHERE public_code=$1',[code]);
+  const r=await query(`SELECT id,name,kind,ambience,public_code${hasColumn('establishments.exclude_non_commercial')?',exclude_non_commercial':''} FROM establishments WHERE public_code=$1`,[code]);
   if(!r.rowCount)throw new AppError(404,'Código de establecimiento inválido');
   return r.rows[0];
 };
@@ -71,8 +72,20 @@ router.get('/venues/:code/now',nowLimiter,async(req,res,next)=>{try{
   ]);
   res.json({nowPlaying:playing.rows[0]?{...publicSong(playing.rows[0]),playedAt:playing.rows[0].played_at??playing.rows[0].evaluated_at}:null,queue:queue.rows.map(publicSong)});
 }catch(e){next(e);}});
+// Buscador: primero pistas completas de Jamendo (caché de 24 h en la base de datos); si son pocas, previews de iTunes.
+const searchFull=async(venue,term)=>{
+  if(!hasColumn('track_cache.id')||!availableProviders().includes('jamendo'))return [];
+  try{return (await searchCatalog({provider:'jamendo',q:term,limit:10,excludeNonCommercial:Boolean(venue.exclude_non_commercial)})).tracks.map((row)=>toPublicTrack(row,{withAudio:false}));}
+  catch(err){console.error('Buscador público sin Jamendo; se usa iTunes:',err.message);return [];}
+};
 router.get('/venues/:code/search',searchLimiter,async(req,res,next)=>{
-  try{const term=searchQuery.parse(req.query.q);await findVenue(req.params.code);res.json(await cachedSearch(term));}catch(e){next(e);}
+  try{
+    const term=searchQuery.parse(req.query.q);const venue=await findVenue(req.params.code);
+    const full=await searchFull(venue,term);
+    let previews=[];
+    if(full.length<SEARCH_MIN_FULL){try{previews=await cachedSearch(term);}catch(err){if(!full.length)throw err;}}
+    res.json(mergeSearchResults(full,previews));
+  }catch(e){next(e);}
 });
 router.post('/venues/:code/requests',requestLimiter,async(req,res,next)=>{try{
   const d=payload.parse(req.body);
