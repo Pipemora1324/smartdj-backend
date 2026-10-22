@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { rateLimit } from 'express-rate-limit';
+import { LIMITS, byOwner, createLimiter } from '../rate-limits.js';
 import { requireSupabaseAuth } from '../supabase-auth.js';
 import { requirePlayerSchema } from '../schema-check.js';
 import { AppError } from '../errors.js';
@@ -25,14 +25,7 @@ import { toStationRequest } from '../player-logic.js';
 
 // Reproductor de la emisora de un local (/api/venues/:id/player). Solo el dueño del local.
 const router = Router({ mergeParams: true });
-const playerLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  limit: 120,
-  standardHeaders: 'draft-7',
-  legacyHeaders: false,
-  keyGenerator: (req) => req.user.sub,
-  message: { error: 'Demasiadas acciones seguidas. Espera un momento.' },
-});
+const playerLimiter = createLimiter({ ...LIMITS.ownerPlayer, keyGenerator: byOwner });
 router.use(requireSupabaseAuth, playerLimiter, async (req, _res, next) => {
   try {
     req.venue = await ownedVenue(req.params.id, req.user.sub);
