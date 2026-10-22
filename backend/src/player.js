@@ -4,6 +4,7 @@ import { AppError } from './errors.js';
 import { hasColumn } from './schema-check.js';
 import { toPublicTrack } from './catalog-logic.js';
 import { insertAt, livePosition, reorderPositions, requestInsertIndex } from './player-logic.js';
+import { logger } from './logger.js';
 
 // Estado del reproductor y cola de cada local (migración 006). Toda escritura va en una transacción
 // con la fila de player_state bloqueada (FOR UPDATE), así dos consolas no avanzan la cola a la vez.
@@ -11,7 +12,7 @@ import { insertAt, livePosition, reorderPositions, requestInsertIndex } from './
 export const publishPlayerUpdate = (venueId) =>
   redis
     .publish(`venue:${venueId}`, JSON.stringify({ type: 'player_updated' }))
-    .catch((err) => console.error('No se pudo avisar el cambio del reproductor:', err.message));
+    .catch((err) => logger.error('No se pudo avisar el cambio del reproductor', { err: err }));
 
 const ensureState = (db, venueId) => db.query('INSERT INTO player_state(establishment_id) VALUES($1) ON CONFLICT DO NOTHING', [venueId]);
 const lockState = async (client, venueId) => {

@@ -6,6 +6,7 @@ import { findFreeVersion, upsertTracks } from './music-catalog.js';
 import { itunesRequestTrack, trackKind } from './catalog-logic.js';
 import { defaultTransition, previewTransition } from './player-logic.js';
 import { enqueue, moveRequestFirst } from './player.js';
+import { logger } from './logger.js';
 
 // Peticiones del público dentro de la emisora (migración 008): qué pista suena por cada una,
 // cuáles están pendientes y las acciones del dueño desde la consola. Ver DECISIONES_DJ.md.
@@ -42,7 +43,7 @@ const loadRequest = async (venueId, requestId) => {
 export const publishRequestChange = (venueId, requestId, type = 'request_updated') =>
   redis
     .publish(`venue:${venueId}`, JSON.stringify({ type, requestId }))
-    .catch((err) => console.error('No se pudo avisar el cambio de la petición:', err.message));
+    .catch((err) => logger.error('No se pudo avisar el cambio de la petición', { err: err }));
 
 // Pista que suena por una petición: la de Jamendo; si vino de iTunes, su versión completa en el catálogo libre
 // (si existe) o el preview de 30 s. Queda guardada en song_requests.track_id. null si no hay audio posible.
@@ -59,7 +60,7 @@ export const resolveRequestTrack = async (venue, request) => {
       excludeNonCommercial: Boolean(venue.exclude_non_commercial),
     });
   } catch (err) {
-    console.error(`No se pudo buscar la versión completa de la petición ${request.id}:`, err.message);
+    logger.error('No se pudo buscar la versión completa de la petición', { requestId: request.id, err });
   }
   if (!row) {
     const preview = itunesRequestTrack(request);

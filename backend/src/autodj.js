@@ -10,6 +10,7 @@ import { tagsForGenre, tagsForVenueProfile } from './catalog-logic.js';
 import { MIN_QUEUE, RECENT_LIMIT, defaultTransition, pickFallback, toFeatures } from './player-logic.js';
 import { hasColumn } from './schema-check.js';
 import { pendingRequests, publishRequestChange, resolveRequestTrack, transitionFor } from './station-requests.js';
+import { logger } from './logger.js';
 
 // AutoDJ: mantiene al menos MIN_QUEUE pistas en la cola de cada local. Solo se ejecuta por eventos
 // (avanzar, saltar, quitar, cambiar a AutoDJ, petición aceptada, primera carga de la consola): sin temporizadores.
@@ -51,10 +52,7 @@ const choose = async (venue, current, candidates, recentIds, recentArtists, cros
       }
     } catch (err) {
       engineDownUntil = Date.now() + ENGINE_RETRY_MS;
-      console.error(
-        `El motor no pudo sugerir la siguiente pista del local ${venue.id}; uso el respaldo por género durante un minuto:`,
-        err.message,
-      );
+      logger.error('El motor no pudo sugerir la siguiente pista; uso el respaldo por género durante un minuto', { venueId: venue.id, err });
     }
   }
   const track = pickFallback({ candidates, venueKind: venue.kind, venueTags: tagsForVenueProfile(venue), recentIds, recentArtists });
@@ -83,7 +81,7 @@ const loadCandidates = async (venue, tags, excludeIds) => {
       const known = new Set(candidates.map((c) => c.id));
       candidates = [...candidates, ...tracks.filter((t) => !known.has(t.id) && !exclude.has(t.id))];
     } catch (err) {
-      console.error(`No se pudieron buscar pistas nuevas para el local ${venue.id}:`, err.message);
+      logger.error('No se pudieron buscar pistas nuevas', { venueId: venue.id, err });
     }
   }
   if (!candidates.length) {
@@ -107,7 +105,7 @@ const interleaveRequests = async (venue, queue, recentIds, requests) => {
     if (inQueue >= MAX_REQUESTS_IN_QUEUE) break;
     if (request.status !== 'accepted' || request.in_queue || request.playing) continue;
     const track = await resolveRequestTrack(venue, request).catch((err) => {
-      console.error(`No se pudo preparar la petición ${request.id}:`, err.message);
+      logger.error('No se pudo preparar la petición', { requestId: request.id, err });
       return null;
     });
     if (!track || recentIds.has(track.id)) continue;
@@ -164,7 +162,7 @@ export const ensureQueue = async (venue) => {
       current = pick.track;
     }
   } catch (err) {
-    console.error(`El AutoDJ no pudo rellenar la cola del local ${venue.id}:`, err.message);
+    logger.error('El AutoDJ no pudo rellenar la cola', { venueId: venue.id, err });
   } finally {
     const owner = await redis.get(lockKey).catch(() => null);
     if (owner === token) await redis.del(lockKey).catch(() => {});

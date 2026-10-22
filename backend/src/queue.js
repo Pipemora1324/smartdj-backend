@@ -7,6 +7,7 @@ import { hasColumn } from './schema-check.js';
 import { grpcEnabled, streamEvaluation } from './ai-client.js';
 import { publishRequestEvent, toLiveEvent } from './request-status.js';
 import { afterRequestEvaluated } from './autodj.js';
+import { logger } from './logger.js';
 export const requestQueue = new Queue('music-requests', { connection: redis });
 export const evaluationJobOptions = {
   attempts: 3,
@@ -77,7 +78,7 @@ const worker = new Worker(
     await redis.publish(`venue:${item.establishment_id}`, JSON.stringify({ type: 'request_evaluated', requestId: item.id, result: ai }));
     // Emisora: en AutoDJ, una petición que encaja se intercala sola en la cola.
     void afterRequestEvaluated(item.establishment_id).catch((err) =>
-      console.error('No se pudo intercalar la petición evaluada:', err.message),
+      logger.error('No se pudo intercalar la petición evaluada', { err: err }),
     );
   },
   {
@@ -91,12 +92,12 @@ const worker = new Worker(
 
 // Si se agotan los reintentos, el navegador recibe un estado final de error en lugar de quedarse esperando.
 worker.on('failed', (job, err) => {
-  console.error(`Evaluación fallida (intento ${job?.attemptsMade}) de la petición ${job?.data?.requestId}:`, err.message);
+  logger.error('Evaluación fallida', { attempt: job?.attemptsMade, requestId: job?.data?.requestId, err });
   if (job && job.attemptsMade >= (job.opts.attempts ?? 1)) {
     publishRequestEvent(job.data.requestId, {
       stage: 'failed',
       message: 'No pudimos evaluar tu petición en este momento. El DJ la revisará manualmente.',
       partialScore: 0,
-    }).catch((e) => console.error('No se pudo publicar el estado de error:', e.message));
+    }).catch((e) => logger.error('No se pudo publicar el estado de error', { err: e }));
   }
 });
