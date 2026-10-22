@@ -7,6 +7,7 @@ import { AppError } from '../errors.js';
 export const PROVIDER = 'jamendo';
 const SPEED_ENERGY = { verylow: 1, low: 2, medium: 3, high: 4, veryhigh: 5 };
 const WAVEFORM_POINTS = 120;
+const CANDIDATE_DURATION = '90_480';
 const IMAGE_HOST = /(^|\.)jamendo\.com$/i;
 
 // El audio va siempre por mp3l.jamendo.com: responde CORS "*" (necesario para el EQ con Web Audio)
@@ -122,8 +123,11 @@ export const createJamendoClient = ({ clientId, apiUrl = 'https://api.jamendo.co
     configured: Boolean(clientId),
     // q: texto libre; tags: géneros (cualquiera de ellos).
     search: async ({ q, tags = [], limit = 30 }) => {
-      const params = { limit, include: 'musicinfo', audioformat: 'mp31', imagesize: 300, boost: 'popularity_total' };
-      if (q) params.search = q;
+      const params = { limit, include: 'musicinfo', audioformat: 'mp31', imagesize: 300 };
+      // Con texto, la relevancia se combina con la popularidad (boost). Sin texto (candidatas del AutoDJ),
+      // las más escuchadas del mes y con duración de canción normal (sin fragmentos ni mezclas de una hora).
+      if (q) Object.assign(params, { search: q, boost: 'popularity_total' });
+      else Object.assign(params, { order: 'popularity_month', durationbetween: CANDIDATE_DURATION });
       if (tags.length) params.fuzzytags = tags.join(' ');
       return (await call('/tracks/', params)).map(toJamendoTrack).filter(Boolean);
     },

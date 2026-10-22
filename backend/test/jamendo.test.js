@@ -89,6 +89,11 @@ test('el cliente envía los filtros y convierte los errores de Jamendo', async (
   assert.equal(params.fuzzytags, 'lounge jazz');
   assert.equal(params.include, 'musicinfo');
   assert.equal(params.limit, 50);
+  assert.equal(params.order, 'popularity_month');
+  assert.equal(params.durationbetween, '90_480');
+  assert.equal(params.boost, undefined);
+  await createJamendoClient({ clientId: 'id', http: ok }).search({ q: 'vivir' });
+  assert.deepEqual([params.search, params.boost, params.order], ['vivir', 'popularity_total', undefined]);
   const failed = { get: async () => ({ data: { headers: { status: 'failed', code: 5, error_message: 'x' } } }) };
   await assert.rejects(createJamendoClient({ clientId: 'id', http: failed }).search({ q: 'x' }), { status: 502 });
   const timeout = { get: async () => { throw Object.assign(new Error('timeout'), { code: 'ECONNABORTED' }); } };
