@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { query } from '../db.js';
 import { requestQueue, evaluationJobOptions } from '../queue.js';
 import { AppError } from '../errors.js';
-import { rateLimit } from 'express-rate-limit';
+import { LIMITS, createLimiter } from '../rate-limits.js';
 import { redis } from '../redis.js';
 import { FINAL_STAGES, publishRequestEvent, readRequestStatus, statusChannel } from '../request-status.js';
 import { lookupTrack, searchTracks } from '../music-search.js';
@@ -65,11 +65,9 @@ const searchQuery = z
   .trim()
   .min(2, 'Escribe al menos 2 caracteres.')
   .max(100, 'La búsqueda puede tener hasta 100 caracteres.');
-const limiter = (limit, message) =>
-  rateLimit({ windowMs: 60 * 1000, limit, standardHeaders: 'draft-7', legacyHeaders: false, message: { error: message } });
-const requestLimiter = limiter(10, 'Enviaste muchas peticiones seguidas. Espera un minuto.');
-const searchLimiter = limiter(30, 'Hiciste muchas búsquedas seguidas. Espera un momento.');
-const nowLimiter = limiter(120, 'Demasiadas consultas. Espera un momento.');
+const requestLimiter = createLimiter(LIMITS.publicRequest);
+const searchLimiter = createLimiter(LIMITS.publicSearch);
+const nowLimiter = createLimiter(LIMITS.publicRead);
 const SEARCH_CACHE_SECONDS = 600;
 
 const findVenue = async (code) => {
@@ -265,28 +263,10 @@ router.post('/venues/:code/requests', requestLimiter, async (req, res, next) => 
 // ---------- Estado en vivo de una petición (polling y SSE) ----------
 // El id es un UUID que solo conoce quien hizo la petición; no se expone el nombre del invitado.
 const requestId = z.string().uuid('El id de la petición no es válido.');
-const statusLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  limit: 120,
-  standardHeaders: 'draft-7',
-  legacyHeaders: false,
-  message: { error: 'Demasiadas consultas. Espera un momento.' },
-});
-const streamLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  limit: 20,
-  standardHeaders: 'draft-7',
-  legacyHeaders: false,
-  message: { error: 'Demasiadas conexiones. Espera un momento.' },
-});
+const statusLimiter = createLimiter(LIMITS.publicRead);
+const streamLimiter = createLimiter(LIMITS.requestStream);
 const SSE_MAX_MS = 2 * 60 * 1000;
-const venueStreamLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  limit: 30,
-  standardHeaders: 'draft-7',
-  legacyHeaders: false,
-  message: { error: 'Demasiadas conexiones. Espera un momento.' },
-});
+const venueStreamLimiter = createLimiter(LIMITS.venueStream);
 const VENUE_SSE_MAX_MS = 5 * 60 * 1000;
 const SSE_HEARTBEAT_MS = 15 * 1000;
 
