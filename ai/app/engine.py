@@ -97,11 +97,6 @@ def key_score(current_key, requested_key):
     return round(max(0.05, 0.6 * (1 - steps / 6)), 4)
 
 
-# Compatibilidad anterior (antes usada por otros módulos).
-def harmonic_distance(a, b):
-    return key_score(a, b)
-
-
 def bpm_score(current_bpm, requested_bpm):
     """Tolera medio y doble tempo; 0 o vacío significa BPM desconocido."""
     if not current_bpm or not requested_bpm:
