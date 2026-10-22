@@ -13,9 +13,7 @@ RUN npm ci --omit=dev --ignore-scripts
 FROM python:3.12-slim-bookworm
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 NODE_ENV=production \
     AI_GRPC_PORT=50051 AI_HTTP_PORT=8000 AI_BIND_HOST=127.0.0.1 \
-    AI_GRPC_URL=127.0.0.1:50051 AI_GRPC_TLS=false AI_SERVICE_URL=http://127.0.0.1:8000 \
-    AI_ENABLE_ANALYZE=false
-# AI_ENABLE_ANALYZE=false: /analyze (librosa) usa ~400 MB y no cabe junto al backend en 512 MB.
+    AI_GRPC_URL=127.0.0.1:50051 AI_GRPC_TLS=false AI_SERVICE_URL=http://127.0.0.1:8000
 # Solo el binario de Node (misma base Debian bookworm que node-deps, compatible con los módulos nativos).
 COPY --from=node-deps /usr/local/bin/node /usr/local/bin/node
 
