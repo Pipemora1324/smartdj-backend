@@ -1,23 +1,87 @@
 import 'dotenv/config';
-const required = ['DATABASE_URL', 'REDIS_URL', 'AI_SERVICE_URL', 'SUPABASE_URL'];
-for (const name of required) if (!process.env[name]) throw new Error(`Missing required environment variable: ${name}`);
-if (!process.env.SUPABASE_JWKS_URL && !process.env.SUPABASE_JWT_SECRET)
-  throw new Error('Missing required environment variable: SUPABASE_JWKS_URL (or SUPABASE_JWT_SECRET)');
-const redisUrl = (() => {
-  const value = process.env.REDIS_URL;
-  const parsed = new URL(value);
-  // Upstash habilita TLS. Corrige URLs copiadas como redis:// para que ioredis
-  // conecte de forma segura sin tener que exponer credenciales en el código.
-  if (parsed.hostname.endsWith('.upstash.io') && parsed.protocol === 'redis:') {
-    return value.replace(/^redis:\/\//i, 'rediss://');
+import { z } from 'zod';
+
+// Validación de la configuración al arrancar: si falta algo o tiene un formato inválido, el servidor no arranca
+// y el error lista TODOS los problemas en español. Los valores por defecto son solo los seguros (puertos, tiempos).
+const urlWith = (protocols, label) =>
+  z
+    .string({ required_error: 'falta (es obligatoria)' })
+    .trim()
+    .min(1, 'falta (es obligatoria)')
+    .refine((value) => {
+      try {
+        return protocols.includes(new URL(value).protocol);
+      } catch {
+        return false;
+      }
+    }, `debe ser una URL ${label}`);
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', 'host.docker.internal']);
+// https en producción; http solo para servicios locales (pruebas con dobles de Jamendo o del motor).
+const serviceUrl = z
+  .string()
+  .trim()
+  .refine((value) => {
+    try {
+      const url = new URL(value);
+      return url.protocol === 'https:' || (url.protocol === 'http:' && LOCAL_HOSTS.has(url.hostname));
+    } catch {
+      return false;
+    }
+  }, 'debe ser una URL https (http solo para localhost)');
+const positiveInt = (fallback) =>
+  z.coerce
+    .number({ invalid_type_error: 'debe ser un número' })
+    .int('debe ser un entero')
+    .positive('debe ser mayor que 0')
+    .default(fallback);
+const optionalText = z.string().trim().optional().default('');
+
+const envSchema = z.object({
+  PORT: positiveInt(3000).refine((n) => n <= 65535, 'debe ser un puerto válido'),
+  DATABASE_URL: urlWith(['postgres:', 'postgresql:'], 'de Postgres (postgres:// o postgresql://)'),
+  REDIS_URL: urlWith(['redis:', 'rediss:'], 'de Redis (redis:// o rediss://)'),
+  AI_SERVICE_URL: urlWith(['http:', 'https:'], 'http(s) del motor'),
+  SUPABASE_URL: urlWith(['http:', 'https:'], 'http(s) del proyecto de Supabase'),
+  SUPABASE_JWKS_URL: optionalText,
+  SUPABASE_JWT_SECRET: optionalText.refine((v) => !v || v.length >= 32, 'debe tener al menos 32 caracteres'),
+  CORS_ORIGIN: optionalText,
+  AI_GRPC_URL: optionalText.refine((v) => !v || /^[\w.-]+:\d{1,5}$/.test(v), 'debe tener el formato host:puerto'),
+  AI_GRPC_TLS: z
+    .enum(['true', 'false', ''], { errorMap: () => ({ message: 'debe ser true o false' }) })
+    .optional()
+    .default('false'),
+  AI_GRPC_TIMEOUT_MS: positiveInt(10000),
+  AI_GRPC_CONNECT_TIMEOUT_MS: positiveInt(3000),
+  JAMENDO_CLIENT_ID: optionalText,
+  JAMENDO_API_URL: serviceUrl.optional().default('https://api.jamendo.com/v3.0'),
+  JAMENDO_MONTHLY_BUDGET: positiveInt(30000),
+  AUDIUS_API_KEY: optionalText,
+});
+
+const listFrom = (value) =>
+  String(value || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+const isOrigin = (value) => {
+  try {
+    return new URL(value).origin === value;
+  } catch {
+    return false;
   }
-  return value;
-})();
-// Lista de origenes permitidos (separados por coma en CORS_ORIGIN).
-const origins = (process.env.CORS_ORIGIN || 'http://localhost:8080')
-  .split(',')
-  .map((s) => s.trim())
-  .filter(Boolean);
+};
+// Reglas que combinan variables: se revisan aparte para listarlas junto a los demás problemas
+// (Zod no ejecuta los refinamientos del objeto si algún campo ya falló).
+const crossIssues = (env) => {
+  const issues = [];
+  const jwks = String(env.SUPABASE_JWKS_URL || '').trim();
+  if (!jwks && !String(env.SUPABASE_JWT_SECRET || '').trim()) issues.push('SUPABASE_JWKS_URL: falta (o define SUPABASE_JWT_SECRET)');
+  if (jwks && !/^https?:\/\//.test(jwks)) issues.push('SUPABASE_JWKS_URL: debe ser una URL http(s)');
+  for (const origin of listFrom(env.CORS_ORIGIN)) {
+    if (!isOrigin(origin)) issues.push(`CORS_ORIGIN: "${origin}" no es un origen válido (esquema://host[:puerto], sin barra final)`);
+  }
+  return issues;
+};
 
 // Origenes de los despliegues conocidos, siempre permitidos.
 const knownOrigins = [
@@ -27,27 +91,54 @@ const knownOrigins = [
   'http://localhost:5173',
 ];
 
-export const config = {
-  port: Number(process.env.PORT || 3000),
-  dbUrl: process.env.DATABASE_URL,
-  redisUrl,
-  aiUrl: process.env.AI_SERVICE_URL,
-  origins: [...new Set([...origins, ...knownOrigins])],
-  supabaseUrl: process.env.SUPABASE_URL || '',
-  supabaseJwksUrl: process.env.SUPABASE_JWKS_URL || '',
-  supabaseJwtSecret: process.env.SUPABASE_JWT_SECRET || '',
-  // gRPC con el motor de IA: si AI_GRPC_URL (host:puerto) está vacío se usa HTTP con AI_SERVICE_URL.
-  aiGrpcUrl: process.env.AI_GRPC_URL || '',
-  aiGrpcTls: process.env.AI_GRPC_TLS === 'true',
-  aiGrpcTimeoutMs: Number(process.env.AI_GRPC_TIMEOUT_MS || 10000),
-  aiGrpcConnectTimeoutMs: Number(process.env.AI_GRPC_CONNECT_TIMEOUT_MS || 3000),
-  // Catálogo de la emisora (ver DECISIONES_DJ.md). Sin JAMENDO_CLIENT_ID el buscador de pistas avisa que no está configurado.
-  jamendoClientId: process.env.JAMENDO_CLIENT_ID || '',
-  jamendoApiUrl: process.env.JAMENDO_API_URL || 'https://api.jamendo.com/v3.0',
-  jamendoMonthlyBudget: Number(process.env.JAMENDO_MONTHLY_BUDGET || 30000),
-  // Audius es opcional y la clave solo vive en el servidor.
-  audiusApiKey: process.env.AUDIUS_API_KEY || '',
+export class ConfigError extends Error {}
+
+// Convierte las variables de entorno en la configuración de la app o lanza ConfigError con todos los problemas.
+export const parseConfig = (env) => {
+  const result = envSchema.safeParse(env);
+  const problems = [
+    ...(result.success ? [] : result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`)),
+    ...crossIssues(env),
+  ];
+  if (problems.length) {
+    throw new ConfigError(`Configuración inválida; revisa las variables de entorno:\n${problems.map((p) => `  - ${p}`).join('\n')}`);
+  }
+  const e = result.data;
+  const redisUrl = (() => {
+    const parsed = new URL(e.REDIS_URL);
+    // Upstash habilita TLS. Corrige URLs copiadas como redis:// para que ioredis
+    // conecte de forma segura sin tener que exponer credenciales en el código.
+    if (parsed.hostname.endsWith('.upstash.io') && parsed.protocol === 'redis:') {
+      return e.REDIS_URL.replace(/^redis:\/\//i, 'rediss://');
+    }
+    return e.REDIS_URL;
+  })();
+  // Lista de origenes permitidos (separados por coma en CORS_ORIGIN).
+  const origins = listFrom(e.CORS_ORIGIN);
+  return {
+    port: e.PORT,
+    dbUrl: e.DATABASE_URL,
+    redisUrl,
+    aiUrl: e.AI_SERVICE_URL,
+    origins: [...new Set([...origins, ...knownOrigins])],
+    supabaseUrl: e.SUPABASE_URL,
+    supabaseJwksUrl: e.SUPABASE_JWKS_URL,
+    supabaseJwtSecret: e.SUPABASE_JWT_SECRET,
+    // gRPC con el motor de IA: si AI_GRPC_URL (host:puerto) está vacío se usa HTTP con AI_SERVICE_URL.
+    aiGrpcUrl: e.AI_GRPC_URL,
+    aiGrpcTls: e.AI_GRPC_TLS === 'true',
+    aiGrpcTimeoutMs: e.AI_GRPC_TIMEOUT_MS,
+    aiGrpcConnectTimeoutMs: e.AI_GRPC_CONNECT_TIMEOUT_MS,
+    // Catálogo de la emisora (ver DECISIONES_DJ.md). Sin JAMENDO_CLIENT_ID el buscador de pistas avisa que no está configurado.
+    jamendoClientId: e.JAMENDO_CLIENT_ID,
+    jamendoApiUrl: e.JAMENDO_API_URL,
+    jamendoMonthlyBudget: e.JAMENDO_MONTHLY_BUDGET,
+    // Audius es opcional y la clave solo vive en el servidor.
+    audiusApiKey: e.AUDIUS_API_KEY,
+  };
 };
+
+export const config = parseConfig(process.env);
 
 // Verdadero si el origen de la peticion esta permitido.
 export const isAllowedOrigin = (origin) => !origin || config.origins.includes(origin);
