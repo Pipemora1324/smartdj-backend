@@ -155,6 +155,14 @@ export const enqueue = (venueId, track, { source = 'manual', requestId = null, s
     return inserted.id;
   });
 
+// Sube a la primera posición la pista de una petición que ya estaba en la cola ("Reproducir ahora").
+export const moveRequestFirst = (venueId, requestId) => mutate(venueId, async (client) => {
+  const rows = (await client.query('SELECT id, request_id FROM play_queue WHERE establishment_id=$1 ORDER BY position, created_at FOR UPDATE', [venueId])).rows;
+  const item = rows.find((r) => r.request_id === requestId);
+  if (!item) throw new AppError(404, 'Esa petición ya no está en la cola.');
+  await applyOrder(client, venueId, [item.id, ...rows.filter((r) => r !== item).map((r) => r.id)]);
+});
+
 export const reorderQueue = (venueId, order) => mutate(venueId, async (client) => {
   const ids = (await client.query('SELECT id FROM play_queue WHERE establishment_id=$1 FOR UPDATE', [venueId])).rows.map((r) => r.id);
   await applyOrder(client, venueId, reorderPositions(ids, order).map((p) => p.id));

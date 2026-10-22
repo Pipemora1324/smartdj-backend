@@ -5,7 +5,7 @@ import { hasColumn } from './schema-check.js';
 import { findFreeVersion, upsertTracks } from './music-catalog.js';
 import { itunesRequestTrack, trackKind } from './catalog-logic.js';
 import { defaultTransition, previewTransition } from './player-logic.js';
-import { enqueue } from './player.js';
+import { enqueue, moveRequestFirst } from './player.js';
 
 // Peticiones del público dentro de la emisora (migración 008): qué pista suena por cada una,
 // cuáles están pendientes y las acciones del dueño desde la consola. Ver DECISIONES_DJ.md.
@@ -64,7 +64,13 @@ export const transitionFor = (track) => (trackKind(track.provider) === 'preview'
 // Pone una petición en la cola: intercalada (AutoDJ o "Añadir a la cola") o primera ("Reproducir ahora").
 export const queueRequest = async (venue, request, { next = false, reason = 'Pedida por el público.' } = {}) => {
   if (request.status === 'played' || request.status === 'rejected') throw new AppError(409, 'Esa petición ya no está pendiente.');
-  if (request.in_queue || request.playing) throw new AppError(409, 'Esa petición ya está en la cola de la emisora.');
+  if (request.playing) throw new AppError(409, 'Esa petición ya está sonando.');
+  if (request.in_queue && next) {
+    await moveRequestFirst(venue.id, request.id);
+    void publishRequestChange(venue.id, request.id);
+    return null;
+  }
+  if (request.in_queue) throw new AppError(409, 'Esa petición ya está en la cola de la emisora.');
   const track = await resolveRequestTrack(venue, request);
   if (!track) throw new AppError(409, 'Esta petición no tiene audio para la emisora. Descártala o busca la canción en el catálogo.');
   await enqueue(venue.id, track, { source: 'request', requestId: request.id, reason, next, ...transitionFor(track) });
