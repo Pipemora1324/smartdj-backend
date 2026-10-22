@@ -17,18 +17,19 @@ import { logger } from './logger.js';
 const app = express();
 app.set('trust proxy', 1);
 app.use(helmet({ crossOriginResourcePolicy: false }));
-// CORS: permitimos el frontend de Vercel (y local) con credenciales.
+// CORS solo para los orígenes conocidos; la sesión viaja en el header Authorization, sin cookies.
 const corsOptions = {
   origin: (origin, cb) => {
     if (isAllowedOrigin(origin)) return cb(null, true);
     logger.warn('CORS rechazó un origen; si es el frontend, agrégalo a CORS_ORIGIN', { origin: sanitizeForLog(origin) });
     cb(new AppError(403, 'Origen no permitido por CORS'));
   },
-  credentials: true,
+  maxAge: 600,
 };
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
-app.use(express.json({ limit: '200kb' }));
+// Los cuerpos más grandes de la API (reordenar la cola) caben de sobra en 32 kB.
+app.use(express.json({ limit: '32kb' }));
 app.get('/api/health', (_q, s) => s.json({ status: 'ok' }));
 app.use('/api/auth', authRoutes);
 app.use('/api/venues/:id/player', playerRoutes);
