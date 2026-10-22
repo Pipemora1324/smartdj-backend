@@ -70,7 +70,10 @@ const searchLimiter = createLimiter(LIMITS.publicSearch);
 const nowLimiter = createLimiter(LIMITS.publicRead);
 const SEARCH_CACHE_SECONDS = 600;
 
+// Código público del local: hasta 12 caracteres alfanuméricos (los nuevos son 12 hex). Lo demás ni llega a la base.
+const venueCode = z.string().regex(/^[A-Za-z0-9_-]{1,12}$/);
 const findVenue = async (code) => {
+  if (!venueCode.safeParse(code).success) throw new AppError(404, 'Código de establecimiento inválido');
   const r = await query(
     `SELECT id,name,kind,ambience,public_code${hasColumn('establishments.exclude_non_commercial') ? ',exclude_non_commercial' : ''} FROM establishments WHERE public_code=$1`,
     [code],
