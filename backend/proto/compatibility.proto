@@ -80,6 +80,8 @@ message SuggestNextRequest {
   repeated TrackFeatures candidates = 3;   // hasta 200
   repeated string recent_ids = 4;          // pistas que sonaron hace poco: no se repiten
   repeated string recent_artists = 5;      // se penalizan para no repetir artista
+  repeated string request_genres = 6;      // géneros que pidió el público hace poco: suben las candidatas parecidas
+  repeated string request_artists = 7;     // artistas que pidió el público: suben las candidatas de ese artista
 }
 
 message SuggestNextResult {
