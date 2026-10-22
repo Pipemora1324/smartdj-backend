@@ -76,9 +76,10 @@ export const searchCatalog = async ({ provider = 'jamendo', q = '', tags = [], l
 };
 
 // Pistas ya guardadas de ciertos géneros (sin consultar al proveedor), para el AutoDJ.
+// Los previews de iTunes no son candidatas: solo suenan como corte de una petición.
 export const cachedCandidates = async ({ tags, excludeIds = [], excludeNonCommercial = false, limit = 60 }) => {
   const r = await query(
-    `SELECT * FROM track_cache WHERE lower(genre) = ANY($1::text[]) AND NOT (id = ANY($2::uuid[])) AND ($3::boolean = FALSE OR non_commercial = FALSE)
+    `SELECT * FROM track_cache WHERE provider <> 'itunes' AND lower(genre) = ANY($1::text[]) AND NOT (id = ANY($2::uuid[])) AND ($3::boolean = FALSE OR non_commercial = FALSE)
      ORDER BY fetched_at DESC LIMIT $4`,
     [tags.map((t) => t.toLowerCase()), excludeIds, excludeNonCommercial, limit]);
   return r.rows;
