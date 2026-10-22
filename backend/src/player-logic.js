@@ -78,3 +78,10 @@ export const toPublicEvent = (message) => {
     return null;
   }
 };
+
+// Corte de petición (preview de 30 s): fundido de salida en los últimos segundos y luego sigue la emisora.
+export const PREVIEW_FADE_SECONDS = 4;
+export const previewTransition = (durationSeconds) => {
+  const duration = Number(durationSeconds) || 0;
+  return { transitionAtSeconds: Math.max(0, duration - PREVIEW_FADE_SECONDS), crossfadeSeconds: Math.min(PREVIEW_FADE_SECONDS, duration) };
+};

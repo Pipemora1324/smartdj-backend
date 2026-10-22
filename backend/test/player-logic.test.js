@@ -61,3 +61,9 @@ test('a la página pública solo llega el tipo de aviso', async () => {
   assert.equal(toPublicEvent(JSON.stringify({ type: '<script>' })), null);
   assert.equal(toPublicEvent(JSON.stringify({})), null);
 });
+
+test('el corte de un preview termina con un fundido de salida', async () => {
+  const { previewTransition } = await import('../src/player-logic.js');
+  assert.deepEqual(previewTransition(30), { transitionAtSeconds: 26, crossfadeSeconds: 4 });
+  assert.deepEqual(previewTransition(0), { transitionAtSeconds: 0, crossfadeSeconds: 0 });
+});
