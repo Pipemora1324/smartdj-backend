@@ -6,7 +6,21 @@ import { AppError } from './errors.js';
 export const REQUIRED_SCHEMA = {
   users: ['id', 'email', 'name', 'role', 'auth_id', 'email_verified'],
   establishments: ['id', 'owner_id', 'name', 'kind', 'ambience', 'public_code', 'created_at'],
-  song_requests: ['id', 'establishment_id', 'guest_name', 'title', 'artist', 'genre', 'bpm', 'musical_key', 'status', 'ai_reason', 'bridge_sequence', 'created_at', 'evaluated_at'],
+  song_requests: [
+    'id',
+    'establishment_id',
+    'guest_name',
+    'title',
+    'artist',
+    'genre',
+    'bpm',
+    'musical_key',
+    'status',
+    'ai_reason',
+    'bridge_sequence',
+    'created_at',
+    'evaluated_at',
+  ],
 };
 export const REQUIRED_TYPES = ['venue_kind', 'request_status'];
 // Columnas de funciones nuevas: si faltan, el código sigue funcionando sin ellas (y avisa qué migración correr).
@@ -28,7 +42,9 @@ export const OPTIONAL_COLUMNS = {
   'mix_history.request_id': '008_peticiones_emisora.sql',
 };
 // Tablas a revisar: las obligatorias y las de columnas opcionales (algunas tablas son nuevas, de la 006).
-export const schemaTables = () => [...new Set([...Object.keys(REQUIRED_SCHEMA), ...Object.keys(OPTIONAL_COLUMNS).map((key) => key.split('.')[0])])];
+export const schemaTables = () => [
+  ...new Set([...Object.keys(REQUIRED_SCHEMA), ...Object.keys(OPTIONAL_COLUMNS).map((key) => key.split('.')[0])]),
+];
 const presentColumns = new Set();
 let lastCheckAt = 0;
 // true si la columna existe (según la última verificación al arrancar).
@@ -40,7 +56,10 @@ export const findMissing = (columnRows, typeNames, required = REQUIRED_SCHEMA, r
   const tables = new Set(columnRows.map((r) => r.table_name));
   const missing = [];
   for (const [table, columns] of Object.entries(required)) {
-    if (!tables.has(table)) { missing.push(`tabla ${table}`); continue; }
+    if (!tables.has(table)) {
+      missing.push(`tabla ${table}`);
+      continue;
+    }
     for (const column of columns) if (!present.has(`${table}.${column}`)) missing.push(`columna ${table}.${column}`);
   }
   for (const type of requiredTypes) if (!typeNames.includes(type)) missing.push(`tipo ${type}`);
@@ -51,16 +70,28 @@ export const checkSchema = async () => {
   try {
     const columns = await query(
       `SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ANY($1)`,
-      [schemaTables()]);
+      [schemaTables()],
+    );
     const types = await query(`SELECT typname FROM pg_type WHERE typname = ANY($1)`, [REQUIRED_TYPES]);
     lastCheckAt = Date.now();
     presentColumns.clear();
     for (const r of columns.rows) presentColumns.add(`${r.table_name}.${r.column_name}`);
-    const pendingFiles = [...new Set(Object.entries(OPTIONAL_COLUMNS).filter(([key]) => !presentColumns.has(key)).map(([, file]) => file))];
+    const pendingFiles = [
+      ...new Set(
+        Object.entries(OPTIONAL_COLUMNS)
+          .filter(([key]) => !presentColumns.has(key))
+          .map(([, file]) => file),
+      ),
+    ];
     if (pendingFiles.length) console.warn(`Migraciones pendientes (la app funciona, con menos datos): ${pendingFiles.join(', ')}.`);
-    const missing = findMissing(columns.rows, types.rows.map((r) => r.typname));
+    const missing = findMissing(
+      columns.rows,
+      types.rows.map((r) => r.typname),
+    );
     if (missing.length) {
-      console.error(`Esquema incompleto en la base de datos: falta ${missing.join(', ')}. Ejecuta en orden los archivos de database/migrations/ (ver README).`);
+      console.error(
+        `Esquema incompleto en la base de datos: falta ${missing.join(', ')}. Ejecuta en orden los archivos de database/migrations/ (ver README).`,
+      );
     } else {
       console.log('Esquema de la base de datos verificado.');
     }
@@ -73,10 +104,18 @@ export const checkSchema = async () => {
 
 // Emisora (migración 006): si faltan sus tablas responde 503 con un mensaje claro en lugar de un 500.
 // Vuelve a revisar el esquema como mucho una vez por minuto, para no exigir reiniciar después de correr el SQL.
-const PLAYER_KEYS = ['track_cache.id', 'track_search_cache.query_key', 'player_state.establishment_id', 'play_queue.id', 'mix_history.track_id', 'establishments.exclude_non_commercial'];
+const PLAYER_KEYS = [
+  'track_cache.id',
+  'track_search_cache.query_key',
+  'player_state.establishment_id',
+  'play_queue.id',
+  'mix_history.track_id',
+  'establishments.exclude_non_commercial',
+];
 const RECHECK_MS = 60 * 1000;
 export const requirePlayerSchema = async () => {
   if (PLAYER_KEYS.every(hasColumn)) return;
   if (Date.now() - lastCheckAt > RECHECK_MS) await checkSchema();
-  if (!PLAYER_KEYS.every(hasColumn)) throw new AppError(503, 'La emisora todavía no está lista: falta ejecutar la migración 006_emisora.sql en la base de datos.');
+  if (!PLAYER_KEYS.every(hasColumn))
+    throw new AppError(503, 'La emisora todavía no está lista: falta ejecutar la migración 006_emisora.sql en la base de datos.');
 };

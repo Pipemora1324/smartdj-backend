@@ -4,7 +4,16 @@ import { config } from './config.js';
 import { AppError } from './errors.js';
 import { createJamendoClient } from './music-providers/jamendo.js';
 import { createAudiusClient } from './music-providers/audius.js';
-import { VENUE_RADIO, buildTrackUpsert, filterLicense, isFresh, matchesRequest, monthKey, searchKey, uniqueTracks } from './catalog-logic.js';
+import {
+  VENUE_RADIO,
+  buildTrackUpsert,
+  filterLicense,
+  isFresh,
+  matchesRequest,
+  monthKey,
+  searchKey,
+  uniqueTracks,
+} from './catalog-logic.js';
 
 // Catálogo de la emisora: busca en el proveedor solo si la búsqueda no está en caché (24 h, en la base de datos).
 // Guarda metadatos, nunca audio (términos de Jamendo, ver DECISIONES_DJ.md).
@@ -31,11 +40,18 @@ const providers = {
   jamendo: createJamendoClient({ clientId: config.jamendoClientId, apiUrl: config.jamendoApiUrl, allowCall: () => allowJamendoCall() }),
   audius: createAudiusClient({ apiKey: config.audiusApiKey }),
 };
-export const availableProviders = () => Object.entries(providers).filter(([, p]) => p.configured).map(([name]) => name);
+export const availableProviders = () =>
+  Object.entries(providers)
+    .filter(([, p]) => p.configured)
+    .map(([name]) => name);
 const providerFor = (name) => {
   const provider = providers[name];
   if (!provider) throw new AppError(400, 'Proveedor de música no válido.');
-  if (!provider.configured) throw new AppError(503, name === 'jamendo' ? 'El catálogo de música no está configurado (falta JAMENDO_CLIENT_ID).' : 'Audius no está configurado.');
+  if (!provider.configured)
+    throw new AppError(
+      503,
+      name === 'jamendo' ? 'El catálogo de música no está configurado (falta JAMENDO_CLIENT_ID).' : 'Audius no está configurado.',
+    );
   return provider;
 };
 
@@ -66,7 +82,10 @@ export const searchCatalog = async ({ provider = 'jamendo', q = '', tags = [], l
   }
   try {
     const rows = await upsertTracks(await providerFor(provider).search({ q, tags, limit }));
-    await query('INSERT INTO track_search_cache(query_key, track_ids) VALUES($1,$2) ON CONFLICT (query_key) DO UPDATE SET track_ids=EXCLUDED.track_ids, fetched_at=NOW()', [key, JSON.stringify(rows.map((r) => r.id))]);
+    await query(
+      'INSERT INTO track_search_cache(query_key, track_ids) VALUES($1,$2) ON CONFLICT (query_key) DO UPDATE SET track_ids=EXCLUDED.track_ids, fetched_at=NOW()',
+      [key, JSON.stringify(rows.map((r) => r.id))],
+    );
     return { tracks: filterLicense(rows, excludeNonCommercial), source: 'provider' };
   } catch (err) {
     if (!entry) throw err;
@@ -81,7 +100,8 @@ export const cachedCandidates = async ({ tags, excludeIds = [], excludeNonCommer
   const r = await query(
     `SELECT * FROM track_cache WHERE provider <> 'itunes' AND lower(genre) = ANY($1::text[]) AND NOT (id = ANY($2::uuid[])) AND ($3::boolean = FALSE OR non_commercial = FALSE)
      ORDER BY fetched_at DESC LIMIT $4`,
-    [tags.map((t) => t.toLowerCase()), excludeIds, excludeNonCommercial, limit]);
+    [tags.map((t) => t.toLowerCase()), excludeIds, excludeNonCommercial, limit],
+  );
   return r.rows;
 };
 

@@ -20,7 +20,11 @@ const start = () => {
       for (const listener of set) listener(event);
     });
     await subscriber.psubscribe('venue:*');
-  })().catch((err) => { ready = null; subscriber?.disconnect(); throw err; });
+  })().catch((err) => {
+    ready = null;
+    subscriber?.disconnect();
+    throw err;
+  });
   return ready;
 };
 

@@ -20,9 +20,14 @@ const profileName = (claims) => {
 export const resolveUser = async (claims) => {
   const linked = await query(`SELECT ${userColumns} FROM users WHERE auth_id=$1`, [claims.sub]);
   if (linked.rowCount) return linked.rows[0];
-  if (!claims.emailVerified || !claims.email) throw new AppError(403, 'Confirma tu correo con el código que te enviamos antes de entrar.', { code: 'EMAIL_NOT_VERIFIED' });
+  if (!claims.emailVerified || !claims.email)
+    throw new AppError(403, 'Confirma tu correo con el código que te enviamos antes de entrar.', { code: 'EMAIL_NOT_VERIFIED' });
   try {
-    const created = await query(`INSERT INTO users(email,name,auth_id,email_verified) VALUES($1,$2,$3,TRUE) RETURNING ${userColumns}`, [claims.email, profileName(claims), claims.sub]);
+    const created = await query(`INSERT INTO users(email,name,auth_id,email_verified) VALUES($1,$2,$3,TRUE) RETURNING ${userColumns}`, [
+      claims.email,
+      profileName(claims),
+      claims.sub,
+    ]);
     return created.rows[0];
   } catch (err) {
     if (!isUniqueViolation(err)) throw err;

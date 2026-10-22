@@ -17,7 +17,10 @@ const httpsUrl = (value) => {
     return null;
   }
 };
-const text = (value, max, fallback = '') => String(value ?? fallback).trim().slice(0, max) || fallback;
+const text = (value, max, fallback = '') =>
+  String(value ?? fallback)
+    .trim()
+    .slice(0, max) || fallback;
 
 export const toAudiusTrack = (item) => {
   const id = item?.id;

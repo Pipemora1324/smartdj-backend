@@ -20,13 +20,18 @@ const REQUEST_SQL = `SELECT r.*, t.provider AS track_provider,
   LEFT JOIN player_state s ON s.establishment_id = r.establishment_id`;
 
 // Peticiones pendientes del local (últimas 24 h), de la más antigua a la más nueva.
-export const pendingRequests = async (venueId) => (await query(
-  `${REQUEST_SQL} WHERE r.establishment_id=$1 AND r.status = ANY($2::request_status[]) AND r.created_at > NOW() - INTERVAL '${PENDING_WINDOW}'
-   ORDER BY r.created_at`, [venueId, PENDING_STATUSES])).rows;
+export const pendingRequests = async (venueId) =>
+  (
+    await query(
+      `${REQUEST_SQL} WHERE r.establishment_id=$1 AND r.status = ANY($2::request_status[]) AND r.created_at > NOW() - INTERVAL '${PENDING_WINDOW}'
+   ORDER BY r.created_at`,
+      [venueId, PENDING_STATUSES],
+    )
+  ).rows;
 
 // Varias peticiones por id, solo del local (estado para la página pública).
-export const requestsByIds = async (venueId, ids) => (ids.length ? (await query(
-  `${REQUEST_SQL} WHERE r.establishment_id=$1 AND r.id = ANY($2::uuid[])`, [venueId, ids])).rows : []);
+export const requestsByIds = async (venueId, ids) =>
+  ids.length ? (await query(`${REQUEST_SQL} WHERE r.establishment_id=$1 AND r.id = ANY($2::uuid[])`, [venueId, ids])).rows : [];
 
 const loadRequest = async (venueId, requestId) => {
   const row = (await query(`${REQUEST_SQL} WHERE r.establishment_id=$1 AND r.id=$2`, [venueId, requestId])).rows[0];
@@ -34,9 +39,10 @@ const loadRequest = async (venueId, requestId) => {
   return row;
 };
 
-export const publishRequestChange = (venueId, requestId, type = 'request_updated') => redis
-  .publish(`venue:${venueId}`, JSON.stringify({ type, requestId }))
-  .catch((err) => console.error('No se pudo avisar el cambio de la petición:', err.message));
+export const publishRequestChange = (venueId, requestId, type = 'request_updated') =>
+  redis
+    .publish(`venue:${venueId}`, JSON.stringify({ type, requestId }))
+    .catch((err) => console.error('No se pudo avisar el cambio de la petición:', err.message));
 
 // Pista que suena por una petición: la de Jamendo; si vino de iTunes, su versión completa en el catálogo libre
 // (si existe) o el preview de 30 s. Queda guardada en song_requests.track_id. null si no hay audio posible.
@@ -47,7 +53,11 @@ export const resolveRequestTrack = async (venue, request) => {
   }
   let row = null;
   try {
-    row = await findFreeVersion({ title: request.title, artist: request.artist, excludeNonCommercial: Boolean(venue.exclude_non_commercial) });
+    row = await findFreeVersion({
+      title: request.title,
+      artist: request.artist,
+      excludeNonCommercial: Boolean(venue.exclude_non_commercial),
+    });
   } catch (err) {
     console.error(`No se pudo buscar la versión completa de la petición ${request.id}:`, err.message);
   }
@@ -59,7 +69,8 @@ export const resolveRequestTrack = async (venue, request) => {
   return row;
 };
 
-export const transitionFor = (track) => (trackKind(track.provider) === 'preview' ? previewTransition(track.duration_seconds) : defaultTransition(track.duration_seconds));
+export const transitionFor = (track) =>
+  trackKind(track.provider) === 'preview' ? previewTransition(track.duration_seconds) : defaultTransition(track.duration_seconds);
 
 // Pone una petición en la cola: intercalada (AutoDJ o "Añadir a la cola") o primera ("Reproducir ahora").
 export const queueRequest = async (venue, request, { next = false, reason = 'Pedida por el público.' } = {}) => {

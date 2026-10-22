@@ -26,9 +26,13 @@ let engineDownUntil = 0;
 // Pide la siguiente pista al motor (gRPC o HTTP); si falla, elige por género y energía sin repetir.
 const choose = async (venue, current, candidates, recentIds, recentArtists, crossfadeSeconds, hints) => {
   const request = {
-    venue_type: venue.kind, current: toFeatures(current), candidates: candidates.slice(0, 200).map(toFeatures),
-    recent_ids: recentIds.filter(Boolean), recent_artists: recentArtists.filter(Boolean).slice(0, 10),
-    request_genres: hints.genres, request_artists: hints.artists,
+    venue_type: venue.kind,
+    current: toFeatures(current),
+    candidates: candidates.slice(0, 200).map(toFeatures),
+    recent_ids: recentIds.filter(Boolean),
+    recent_artists: recentArtists.filter(Boolean).slice(0, 10),
+    request_genres: hints.genres,
+    request_artists: hints.artists,
   };
   if (Date.now() >= engineDownUntil) {
     try {
@@ -37,23 +41,42 @@ const choose = async (venue, current, candidates, recentIds, recentArtists, cros
         : (await axios.post(`${config.aiUrl}/suggest-next`, request, { timeout: config.aiGrpcTimeoutMs })).data;
       const track = candidates.find((c) => c.id === result?.track_id);
       if (track) {
-        return { track, score: result.score, reason: result.reason, transitionAtSeconds: result.transition_at_seconds, crossfadeSeconds: result.crossfade_seconds };
+        return {
+          track,
+          score: result.score,
+          reason: result.reason,
+          transitionAtSeconds: result.transition_at_seconds,
+          crossfadeSeconds: result.crossfade_seconds,
+        };
       }
     } catch (err) {
       engineDownUntil = Date.now() + ENGINE_RETRY_MS;
-      console.error(`El motor no pudo sugerir la siguiente pista del local ${venue.id}; uso el respaldo por género durante un minuto:`, err.message);
+      console.error(
+        `El motor no pudo sugerir la siguiente pista del local ${venue.id}; uso el respaldo por género durante un minuto:`,
+        err.message,
+      );
     }
   }
   const track = pickFallback({ candidates, venueKind: venue.kind, venueTags: tagsForVenueProfile(venue), recentIds, recentArtists });
   if (!track) return null;
-  return { track, score: null, reason: 'Elegida por género y energía del local (motor no disponible).', ...defaultTransition(track.duration_seconds, crossfadeSeconds) };
+  return {
+    track,
+    score: null,
+    reason: 'Elegida por género y energía del local (motor no disponible).',
+    ...defaultTransition(track.duration_seconds, crossfadeSeconds),
+  };
 };
 
 // Candidatas: primero las guardadas; si son pocas, una búsqueda por género (cacheada 24 h);
 // si no hay nada (Jamendo caído y sin caché), la pista de la radio de Jamendo del local.
 const loadCandidates = async (venue, tags, excludeIds) => {
   const exclude = new Set(excludeIds);
-  let candidates = await cachedCandidates({ tags, excludeIds: [...exclude], excludeNonCommercial: venue.exclude_non_commercial, limit: MAX_CANDIDATES });
+  let candidates = await cachedCandidates({
+    tags,
+    excludeIds: [...exclude],
+    excludeNonCommercial: venue.exclude_non_commercial,
+    limit: MAX_CANDIDATES,
+  });
   if (candidates.length < MIN_CANDIDATES) {
     try {
       const { tracks } = await searchCatalog({ tags, limit: 50, excludeNonCommercial: venue.exclude_non_commercial });
@@ -83,9 +106,17 @@ const interleaveRequests = async (venue, queue, recentIds, requests) => {
   for (const request of requests) {
     if (inQueue >= MAX_REQUESTS_IN_QUEUE) break;
     if (request.status !== 'accepted' || request.in_queue || request.playing) continue;
-    const track = await resolveRequestTrack(venue, request).catch((err) => { console.error(`No se pudo preparar la petición ${request.id}:`, err.message); return null; });
+    const track = await resolveRequestTrack(venue, request).catch((err) => {
+      console.error(`No se pudo preparar la petición ${request.id}:`, err.message);
+      return null;
+    });
     if (!track || recentIds.has(track.id)) continue;
-    await enqueue(venue.id, track, { source: 'request', requestId: request.id, reason: 'Petición del público: encaja con el ambiente.', ...transitionFor(track) });
+    await enqueue(venue.id, track, {
+      source: 'request',
+      requestId: request.id,
+      reason: 'Petición del público: encaja con el ambiente.',
+      ...transitionFor(track),
+    });
     void publishRequestChange(venue.id, request.id);
     inQueue += 1;
     added += 1;
@@ -119,7 +150,13 @@ export const ensureQueue = async (venue) => {
     for (let i = queue.length; i < MIN_QUEUE && candidates.length; i += 1) {
       const pick = await choose(venue, current, candidates, recentIds, recentArtists, state.crossfade_seconds, hints);
       if (!pick) break;
-      await enqueue(venue.id, pick.track, { source: 'autodj', score: pick.score, reason: pick.reason, transitionAtSeconds: pick.transitionAtSeconds, crossfadeSeconds: pick.crossfadeSeconds });
+      await enqueue(venue.id, pick.track, {
+        source: 'autodj',
+        score: pick.score,
+        reason: pick.reason,
+        transitionAtSeconds: pick.transitionAtSeconds,
+        crossfadeSeconds: pick.crossfadeSeconds,
+      });
       added += 1;
       candidates = candidates.filter((c) => c.id !== pick.track.id);
       recentIds.push(pick.track.id);

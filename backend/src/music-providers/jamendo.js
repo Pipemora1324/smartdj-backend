@@ -12,10 +12,12 @@ const IMAGE_HOST = /(^|\.)jamendo\.com$/i;
 
 // El audio va siempre por mp3l.jamendo.com: responde CORS "*" (necesario para el EQ con Web Audio)
 // y no lleva el client_id en la URL.
-export const audioUrlFor = (trackId) => (/^\d{1,12}$/.test(String(trackId)) ? `https://mp3l.jamendo.com/?trackid=${trackId}&format=mp31` : null);
+export const audioUrlFor = (trackId) =>
+  /^\d{1,12}$/.test(String(trackId)) ? `https://mp3l.jamendo.com/?trackid=${trackId}&format=mp31` : null;
 // Host de respaldo si mp3l no responde: sirve el mismo audio, pero su CORS no es fiable (ver DECISIONES_DJ.md),
 // así que la consola lo usa sin Web Audio (sin EQ).
-export const fallbackAudioUrlFor = (trackId) => (/^\d{1,12}$/.test(String(trackId)) ? `https://prod-1.storage.jamendo.com/?trackid=${trackId}&format=mp31` : null);
+export const fallbackAudioUrlFor = (trackId) =>
+  /^\d{1,12}$/.test(String(trackId)) ? `https://prod-1.storage.jamendo.com/?trackid=${trackId}&format=mp31` : null;
 export const shareUrlFor = (trackId) => (/^\d{1,12}$/.test(String(trackId)) ? `https://www.jamendo.com/track/${trackId}` : null);
 
 export const safeImageUrl = (value) => {
@@ -62,12 +64,17 @@ export const reduceWaveform = (raw, points = WAVEFORM_POINTS) => {
   if (!values.length) return [];
   const size = Math.min(points, values.length);
   const bucket = values.length / size;
-  const reduced = Array.from({ length: size }, (_, i) => Math.max(...values.slice(Math.floor(i * bucket), Math.max(Math.floor((i + 1) * bucket), Math.floor(i * bucket) + 1))));
+  const reduced = Array.from({ length: size }, (_, i) =>
+    Math.max(...values.slice(Math.floor(i * bucket), Math.max(Math.floor((i + 1) * bucket), Math.floor(i * bucket) + 1))),
+  );
   const max = Math.max(...reduced) || 1;
   return reduced.map((v) => Math.round((v / max) * 1000) / 1000);
 };
 
-const text = (value, max, fallback = '') => String(value ?? fallback).trim().slice(0, max) || fallback;
+const text = (value, max, fallback = '') =>
+  String(value ?? fallback)
+    .trim()
+    .slice(0, max) || fallback;
 
 // Resultado de /tracks → pista normalizada (mismo formato para todos los proveedores). null si no se puede reproducir.
 export const toJamendoTrack = (item) => {
@@ -99,17 +106,27 @@ export const toJamendoTrack = (item) => {
 const failure = (err) => {
   if (err instanceof AppError) return err;
   console.error('Error consultando Jamendo:', err.code || err.message);
-  if (err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT') return new AppError(504, 'El catálogo de música tardó demasiado. Intenta de nuevo.');
+  if (err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT')
+    return new AppError(504, 'El catálogo de música tardó demasiado. Intenta de nuevo.');
   return new AppError(502, 'El catálogo de música no está disponible en este momento.');
 };
 
 // Cliente de la API. allowCall() decide si queda cuota (contador mensual); si devuelve false no se llama a Jamendo.
-export const createJamendoClient = ({ clientId, apiUrl = 'https://api.jamendo.com/v3.0', timeoutMs = 5000, allowCall = async () => true, http = axios } = {}) => {
+export const createJamendoClient = ({
+  clientId,
+  apiUrl = 'https://api.jamendo.com/v3.0',
+  timeoutMs = 5000,
+  allowCall = async () => true,
+  http = axios,
+} = {}) => {
   const call = async (path, params) => {
     if (!clientId) throw new AppError(503, 'El catálogo de música no está configurado (falta JAMENDO_CLIENT_ID).');
     if (!(await allowCall())) throw new AppError(503, 'Se alcanzó el límite mensual de consultas al catálogo de música.');
     try {
-      const { data } = await http.get(`${apiUrl}${path}`, { params: { client_id: clientId, format: 'json', ...params }, timeout: timeoutMs });
+      const { data } = await http.get(`${apiUrl}${path}`, {
+        params: { client_id: clientId, format: 'json', ...params },
+        timeout: timeoutMs,
+      });
       if (data?.headers?.status && data.headers.status !== 'success') {
         console.error('Jamendo respondió con error:', sanitizeForLog(data.headers.code, 20), sanitizeForLog(data.headers.error_message));
         throw new AppError(502, 'El catálogo de música respondió con un error.');

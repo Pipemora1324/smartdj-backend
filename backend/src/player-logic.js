@@ -51,8 +51,11 @@ export const pickFallback = ({ candidates, venueKind, venueTags = [], recentIds 
     if (energy >= low && energy <= high) return 1;
     return Math.max(0, 1 - Math.min(Math.abs(energy - low), Math.abs(energy - high)) / 2);
   };
-  const score = (c) => (tags.has(String(c.genre).toLowerCase()) ? 1 : 0) + energyFit(Number(c.energy) || 0)
-    - (artists.has(String(c.artist).toLowerCase()) ? 0.6 : 0) + random() * 0.3;
+  const score = (c) =>
+    (tags.has(String(c.genre).toLowerCase()) ? 1 : 0) +
+    energyFit(Number(c.energy) || 0) -
+    (artists.has(String(c.artist).toLowerCase()) ? 0.6 : 0) +
+    random() * 0.3;
   return pool.map((c) => ({ c, s: score(c) })).sort((a, b) => b.s - a.s)[0].c;
 };
 
@@ -60,14 +63,25 @@ export const pickFallback = ({ candidates, venueKind, venueTags = [], recentIds 
 export const defaultTransition = (durationSeconds, crossfadeSeconds = 8) => {
   const duration = Number(durationSeconds) || 0;
   const crossfade = Math.min(Number(crossfadeSeconds) || 0, Math.max(0, duration / 4));
-  return { transitionAtSeconds: Math.max(0, Math.round((duration - crossfade - 1) * 100) / 100), crossfadeSeconds: Math.round(crossfade * 100) / 100 };
+  return {
+    transitionAtSeconds: Math.max(0, Math.round((duration - crossfade - 1) * 100) / 100),
+    crossfadeSeconds: Math.round(crossfade * 100) / 100,
+  };
 };
 
 // Fila de track_cache → TrackFeatures del proto (0 y '' = desconocido para el motor).
-export const toFeatures = (row) => (row ? {
-  id: row.id, genre: row.genre || '', bpm: Number(row.bpm) || 0, key: row.musical_key || '',
-  energy: Number(row.energy) || 0, duration_seconds: Number(row.duration_seconds) || 0, artist: row.artist || '',
-} : undefined);
+export const toFeatures = (row) =>
+  row
+    ? {
+        id: row.id,
+        genre: row.genre || '',
+        bpm: Number(row.bpm) || 0,
+        key: row.musical_key || '',
+        energy: Number(row.energy) || 0,
+        duration_seconds: Number(row.duration_seconds) || 0,
+        artist: row.artist || '',
+      }
+    : undefined;
 
 // Solo se reenvía el tipo de aviso: el contenido (ids de petición, resultados) no sale a la página pública.
 export const toPublicEvent = (message) => {
@@ -88,8 +102,13 @@ export const previewTransition = (durationSeconds) => {
 
 // Estado de una petición tal como lo ven el dueño (consola) y el cliente (página pública).
 export const REQUEST_STATE_LABELS = {
-  queued: 'En evaluación', accepted: 'Esperando turno', bridging: 'El DJ la revisará', rejected: 'Descartada', played: 'Sonada',
-  in_queue: 'En la cola', playing: 'Sonando ahora',
+  queued: 'En evaluación',
+  accepted: 'Esperando turno',
+  bridging: 'El DJ la revisará',
+  rejected: 'Descartada',
+  played: 'Sonada',
+  in_queue: 'En la cola',
+  playing: 'Sonando ahora',
 };
 export const requestState = (row) => {
   if (row.status === 'played' || row.status === 'rejected') return row.status;
@@ -107,9 +126,18 @@ export const toStationRequest = (row, { withGuest = true } = {}) => {
   const state = requestState(row);
   const kind = requestKind(row);
   return {
-    id: row.id, title: row.title, artist: row.artist, genre: row.genre, artworkUrl: row.artwork_url ?? null,
-    kind, kindLabel: kind === 'full' ? 'Completa' : 'Preview 30 s', state, stateLabel: REQUEST_STATE_LABELS[state] ?? state,
-    fits: row.status === 'accepted', reason: row.ai_reason ?? null, createdAt: row.created_at,
+    id: row.id,
+    title: row.title,
+    artist: row.artist,
+    genre: row.genre,
+    artworkUrl: row.artwork_url ?? null,
+    kind,
+    kindLabel: kind === 'full' ? 'Completa' : 'Preview 30 s',
+    state,
+    stateLabel: REQUEST_STATE_LABELS[state] ?? state,
+    fits: row.status === 'accepted',
+    reason: row.ai_reason ?? null,
+    createdAt: row.created_at,
     ...(withGuest ? { guestName: row.guest_name } : {}),
   };
 };

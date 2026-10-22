@@ -23,11 +23,16 @@ const minRefreshMs = 30 * 1000;
 const jwksTimeoutMs = 5000;
 let jwks = null;
 
-export const resetJwksCache = () => { jwks = null; };
+export const resetJwksCache = () => {
+  jwks = null;
+};
 
 const loadJwks = async () => {
   try {
-    const response = await fetch(config.supabaseJwksUrl, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(jwksTimeoutMs) });
+    const response = await fetch(config.supabaseJwksUrl, {
+      headers: { accept: 'application/json' },
+      signal: AbortSignal.timeout(jwksTimeoutMs),
+    });
     if (!response.ok) throw new SupabaseTokenError('unavailable');
     const body = await response.json();
     const keys = new Map();
@@ -74,7 +79,13 @@ export const verifySupabaseToken = async (token) => {
   } catch (err) {
     throw new SupabaseTokenError(err instanceof jwt.TokenExpiredError ? 'expired' : 'invalid');
   }
-  if (payload.role !== 'authenticated' || payload.is_anonymous === true || typeof payload.sub !== 'string' || !uuidPattern.test(payload.sub)) throw new SupabaseTokenError('invalid');
+  if (
+    payload.role !== 'authenticated' ||
+    payload.is_anonymous === true ||
+    typeof payload.sub !== 'string' ||
+    !uuidPattern.test(payload.sub)
+  )
+    throw new SupabaseTokenError('invalid');
   const metadata = typeof payload.user_metadata === 'object' && payload.user_metadata !== null ? payload.user_metadata : {};
   return {
     sub: payload.sub.toLowerCase(),

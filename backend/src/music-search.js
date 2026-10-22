@@ -31,7 +31,9 @@ export const toTrack = (item) => {
     previewUrl: safeMediaUrl(item.previewUrl),
     durationMs: Number.isFinite(item.trackTimeMillis) ? item.trackTimeMillis : null,
     // Origen y enlace a la tienda: los términos de Apple piden atribución y enlace junto al preview.
-    source: 'itunes', kind: 'preview', kindLabel: 'Preview 30 s',
+    source: 'itunes',
+    kind: 'preview',
+    kindLabel: 'Preview 30 s',
     storeUrl: safeMediaUrl(item.trackViewUrl),
   };
 };
@@ -42,13 +44,17 @@ const callItunes = async (path, params) => {
     return Array.isArray(data?.results) ? data.results : [];
   } catch (err) {
     console.error(`Error consultando iTunes ${path}:`, err.code || err.message);
-    if (err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT') throw new AppError(504, 'El buscador de canciones tardó demasiado. Intenta de nuevo.');
+    if (err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT')
+      throw new AppError(504, 'El buscador de canciones tardó demasiado. Intenta de nuevo.');
     throw new AppError(502, 'El buscador de canciones no está disponible en este momento.');
   }
 };
 
 export const searchTracks = async (term) =>
-  (await callItunes('/search', { term, media: 'music', entity: 'song', limit: MAX_RESULTS })).map(toTrack).filter(Boolean).slice(0, MAX_RESULTS);
+  (await callItunes('/search', { term, media: 'music', entity: 'song', limit: MAX_RESULTS }))
+    .map(toTrack)
+    .filter(Boolean)
+    .slice(0, MAX_RESULTS);
 
 // Vuelve a pedir la canción por id para no confiar en los datos que manda el navegador.
 export const lookupTrack = async (trackId) =>

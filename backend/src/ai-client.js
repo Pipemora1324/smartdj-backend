@@ -21,7 +21,10 @@ const getClient = () => {
   );
   return client;
 };
-export const closeAiClient = () => { client?.close(); client = null; };
+export const closeAiClient = () => {
+  client?.close();
+  client = null;
+};
 
 const deadlineIn = (ms) => new Date(Date.now() + ms);
 
@@ -29,9 +32,11 @@ const deadlineIn = (ms) => new Date(Date.now() + ms);
 // llamada esperaría el deadline completo antes de fallar.
 const ensureConnected = (connectTimeoutMs = config.aiGrpcConnectTimeoutMs) =>
   new Promise((resolve, reject) => {
-    getClient().waitForReady(deadlineIn(connectTimeoutMs), (err) => (err
-      ? reject(new AppError(503, 'El motor de compatibilidad no está disponible en este momento.', { grpcCode: 'UNAVAILABLE' }))
-      : resolve()));
+    getClient().waitForReady(deadlineIn(connectTimeoutMs), (err) =>
+      err
+        ? reject(new AppError(503, 'El motor de compatibilidad no está disponible en este momento.', { grpcCode: 'UNAVAILABLE' }))
+        : resolve(),
+    );
   });
 
 // Diagnóstico al arrancar: avisa en el log si gRPC está configurado pero el motor no responde
@@ -42,7 +47,9 @@ export const checkAiConnection = async () => {
     await ensureConnected(Math.max(config.aiGrpcConnectTimeoutMs, 5000));
     console.log(`Motor de IA conectado por gRPC en ${config.aiGrpcUrl}.`);
   } catch {
-    console.error(`El motor de IA no responde por gRPC en ${config.aiGrpcUrl}. Las peticiones quedarán como "failed" hasta que responda. Si no usas el contenedor combinado, deja AI_GRPC_URL vacío.`);
+    console.error(
+      `El motor de IA no responde por gRPC en ${config.aiGrpcUrl}. Las peticiones quedarán como "failed" hasta que responda. Si no usas el contenedor combinado, deja AI_GRPC_URL vacío.`,
+    );
   }
 };
 
@@ -69,14 +76,24 @@ export const streamEvaluation = async (requestId, request, onEvent, { timeoutMs 
     let failed = false;
     call.on('data', (event) => {
       if (event.stage === 'RESULT') result = event.result;
-      if (onEvent) pending.push(Promise.resolve().then(() => onEvent(event)).catch((err) => console.error('Error procesando un evento del stream gRPC:', err.message)));
+      if (onEvent)
+        pending.push(
+          Promise.resolve()
+            .then(() => onEvent(event))
+            .catch((err) => console.error('Error procesando un evento del stream gRPC:', err.message)),
+        );
     });
-    call.on('error', (err) => { failed = true; Promise.allSettled(pending).then(() => reject(toAppError(err))).catch(reject); });
+    call.on('error', (err) => {
+      failed = true;
+      Promise.allSettled(pending)
+        .then(() => reject(toAppError(err)))
+        .catch(reject);
+    });
     call.on('end', () => {
       if (failed) return;
-      Promise.allSettled(pending).then(() => (result
-        ? resolve(result)
-        : reject(new AppError(502, 'El motor terminó la evaluación sin enviar un resultado.')))).catch(reject);
+      Promise.allSettled(pending)
+        .then(() => (result ? resolve(result) : reject(new AppError(502, 'El motor terminó la evaluación sin enviar un resultado.'))))
+        .catch(reject);
     });
   });
 };
@@ -85,6 +102,8 @@ export const streamEvaluation = async (requestId, request, onEvent, { timeoutMs 
 export const suggestNext = async (request, { timeoutMs = config.aiGrpcTimeoutMs } = {}) => {
   await ensureConnected();
   return new Promise((resolve, reject) => {
-    getClient().SuggestNext(request, { deadline: deadlineIn(timeoutMs) }, (err, result) => (err ? reject(toAppError(err)) : resolve(result)));
+    getClient().SuggestNext(request, { deadline: deadlineIn(timeoutMs) }, (err, result) =>
+      err ? reject(toAppError(err)) : resolve(result),
+    );
   });
 };
