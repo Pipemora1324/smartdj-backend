@@ -85,3 +85,31 @@ export const previewTransition = (durationSeconds) => {
   const duration = Number(durationSeconds) || 0;
   return { transitionAtSeconds: Math.max(0, duration - PREVIEW_FADE_SECONDS), crossfadeSeconds: Math.min(PREVIEW_FADE_SECONDS, duration) };
 };
+
+// Estado de una petición tal como lo ven el dueño (consola) y el cliente (página pública).
+export const REQUEST_STATE_LABELS = {
+  queued: 'En evaluación', accepted: 'Esperando turno', bridging: 'El DJ la revisará', rejected: 'Descartada', played: 'Sonada',
+  in_queue: 'En la cola', playing: 'Sonando ahora',
+};
+export const requestState = (row) => {
+  if (row.status === 'played' || row.status === 'rejected') return row.status;
+  if (row.playing) return 'playing';
+  if (row.in_queue) return 'in_queue';
+  return row.status;
+};
+// Completa (pista de Jamendo, también si una petición de iTunes se encontró completa) o preview de 30 s.
+export const requestKind = (row) => {
+  const provider = row.track_provider ?? row.provider ?? 'itunes';
+  return provider === 'itunes' ? 'preview' : 'full';
+};
+// withGuest=false para la página pública: nunca expone el nombre de quien pidió.
+export const toStationRequest = (row, { withGuest = true } = {}) => {
+  const state = requestState(row);
+  const kind = requestKind(row);
+  return {
+    id: row.id, title: row.title, artist: row.artist, genre: row.genre, artworkUrl: row.artwork_url ?? null,
+    kind, kindLabel: kind === 'full' ? 'Completa' : 'Preview 30 s', state, stateLabel: REQUEST_STATE_LABELS[state] ?? state,
+    fits: row.status === 'accepted', reason: row.ai_reason ?? null, createdAt: row.created_at,
+    ...(withGuest ? { guestName: row.guest_name } : {}),
+  };
+};

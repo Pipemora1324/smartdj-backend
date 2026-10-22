@@ -67,3 +67,16 @@ test('el corte de un preview termina con un fundido de salida', async () => {
   assert.deepEqual(previewTransition(30), { transitionAtSeconds: 26, crossfadeSeconds: 4 });
   assert.deepEqual(previewTransition(0), { transitionAtSeconds: 0, crossfadeSeconds: 0 });
 });
+
+test('el estado de una petición combina la evaluación, la cola y lo que suena', async () => {
+  const { toStationRequest, requestState } = await import('../src/player-logic.js');
+  const base = { id: 'r1', title: 'T', artist: 'A', genre: 'Salsa', status: 'accepted', guest_name: 'Caro', provider: 'itunes', created_at: 'x' };
+  assert.equal(requestState(base), 'accepted');
+  assert.equal(requestState({ ...base, in_queue: true }), 'in_queue');
+  assert.equal(requestState({ ...base, in_queue: true, playing: true }), 'playing');
+  assert.equal(requestState({ ...base, status: 'played', playing: true }), 'played');
+  const owner = toStationRequest({ ...base, in_queue: true });
+  assert.deepEqual([owner.kind, owner.kindLabel, owner.stateLabel, owner.guestName, owner.fits], ['preview', 'Preview 30 s', 'En la cola', 'Caro', true]);
+  assert.equal(toStationRequest({ ...base, track_provider: 'jamendo' }).kindLabel, 'Completa');
+  assert.equal('guestName' in toStationRequest(base, { withGuest: false }), false);
+});
