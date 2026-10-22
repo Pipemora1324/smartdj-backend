@@ -1,6 +1,6 @@
 import { Router } from 'express'; import { z } from 'zod'; import axios from 'axios'; import { query } from '../db.js'; import { requireSupabaseAuth } from '../supabase-auth.js'; import { AppError } from '../errors.js'; import { config } from '../config.js'; import { checkCompatibility, grpcEnabled } from '../ai-client.js'; import { searchTracks } from '../music-search.js';
 import { listLimit, requestStatusSchema, trackSearchSchema, uuidParam, venuePatchSchema, venueSchema } from '../owner-validation.js'; import { hasColumn, requirePlayerSchema } from '../schema-check.js'; import { redis } from '../redis.js';
-import { rateLimit } from 'express-rate-limit'; import { searchCatalog } from '../music-catalog.js'; import { tagsForVenue, toPublicTrack } from '../catalog-logic.js'; import { ensureQueue } from '../autodj.js';
+import { rateLimit } from 'express-rate-limit'; import { searchCatalog } from '../music-catalog.js'; import { tagsForVenueProfile, toPublicTrack } from '../catalog-logic.js'; import { ensureQueue } from '../autodj.js';
 const router=Router(); router.use(requireSupabaseAuth);
 // Carga el local solo si pertenece al dueño de la sesión; si no, 404 (no se revela si existe).
 export const ownedVenue=async(id,ownerId)=>{const r=await query('SELECT * FROM establishments WHERE id=$1 AND owner_id=$2',[uuidParam.parse(id),ownerId]);if(!r.rowCount)throw new AppError(404,'Establecimiento no encontrado');return r.rows[0];};
@@ -20,7 +20,7 @@ const trackSearchLimiter=rateLimit({windowMs:60*1000,limit:30,standardHeaders:'d
 router.get('/:id/tracks/search',trackSearchLimiter,async(req,res,next)=>{try{
   const venue=await ownedVenue(req.params.id,req.user.sub);await requirePlayerSchema();
   const d=trackSearchSchema.parse(req.query);
-  const tags=d.genre?[d.genre]:d.q?[]:tagsForVenue(venue.kind);
+  const tags=d.genre?[d.genre]:d.q?[]:tagsForVenueProfile(venue);
   const {tracks,source}=await searchCatalog({provider:d.provider,q:d.q,tags,excludeNonCommercial:venue.exclude_non_commercial});
   res.json({tracks:tracks.map((row)=>toPublicTrack(row)),source});
 }catch(e){next(e);}});
