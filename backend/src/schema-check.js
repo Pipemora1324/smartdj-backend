@@ -22,6 +22,10 @@ export const OPTIONAL_COLUMNS = {
   'play_queue.id': '006_emisora.sql',
   'mix_history.track_id': '006_emisora.sql',
   'establishments.exclude_non_commercial': '006_emisora.sql',
+  'song_requests.provider': '008_peticiones_emisora.sql',
+  'song_requests.track_id': '008_peticiones_emisora.sql',
+  'song_requests.store_url': '008_peticiones_emisora.sql',
+  'mix_history.request_id': '008_peticiones_emisora.sql',
 };
 // Tablas a revisar: las obligatorias y las de columnas opcionales (algunas tablas son nuevas, de la 006).
 export const schemaTables = () => [...new Set([...Object.keys(REQUIRED_SCHEMA), ...Object.keys(OPTIONAL_COLUMNS).map((key) => key.split('.')[0])])];
