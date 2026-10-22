@@ -1,5 +1,6 @@
 import { query } from './db.js';
 import { AppError } from './errors.js';
+import { logger } from './logger.js';
 
 // Tablas y columnas que usa el código. Si en producción falta algo, el log lo dice al arrancar
 // (en lugar de fallar con un 500 en la primera petición).
@@ -83,21 +84,21 @@ export const checkSchema = async () => {
           .map(([, file]) => file),
       ),
     ];
-    if (pendingFiles.length) console.warn(`Migraciones pendientes (la app funciona, con menos datos): ${pendingFiles.join(', ')}.`);
+    if (pendingFiles.length) logger.warn('Migraciones pendientes (la app funciona, con menos datos)', { files: pendingFiles });
     const missing = findMissing(
       columns.rows,
       types.rows.map((r) => r.typname),
     );
     if (missing.length) {
-      console.error(
-        `Esquema incompleto en la base de datos: falta ${missing.join(', ')}. Ejecuta en orden los archivos de database/migrations/ (ver README).`,
-      );
+      logger.error('Esquema incompleto en la base de datos: ejecuta en orden los archivos de database/migrations/ (ver README)', {
+        missing,
+      });
     } else {
-      console.log('Esquema de la base de datos verificado.');
+      logger.info('Esquema de la base de datos verificado');
     }
     return missing;
   } catch (err) {
-    console.error('No se pudo verificar el esquema de la base de datos:', err.message);
+    logger.error('No se pudo verificar el esquema de la base de datos', { err: err });
     return null;
   }
 };

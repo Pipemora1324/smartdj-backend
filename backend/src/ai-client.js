@@ -3,6 +3,7 @@ import protoLoader from '@grpc/proto-loader';
 import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
 import { AppError } from './errors.js';
+import { logger } from './logger.js';
 
 // Cliente gRPC del motor de compatibilidad. El contrato se carga en tiempo de ejecución desde
 // backend/proto/compatibility.proto (copia idéntica de ai/proto, lo verifica npm test).
@@ -42,13 +43,14 @@ const ensureConnected = (connectTimeoutMs = config.aiGrpcConnectTimeoutMs) =>
 // Diagnóstico al arrancar: avisa en el log si gRPC está configurado pero el motor no responde
 // (por ejemplo, AI_GRPC_URL=127.0.0.1:50051 sin usar el contenedor combinado).
 export const checkAiConnection = async () => {
-  if (!grpcEnabled()) return console.log('Motor de IA por HTTP (AI_GRPC_URL vacío).');
+  if (!grpcEnabled()) return logger.info('Motor de IA por HTTP (AI_GRPC_URL vacío)');
   try {
     await ensureConnected(Math.max(config.aiGrpcConnectTimeoutMs, 5000));
-    console.log(`Motor de IA conectado por gRPC en ${config.aiGrpcUrl}.`);
+    logger.info('Motor de IA conectado por gRPC', { url: config.aiGrpcUrl });
   } catch {
-    console.error(
-      `El motor de IA no responde por gRPC en ${config.aiGrpcUrl}. Las peticiones quedarán como "failed" hasta que responda. Si no usas el contenedor combinado, deja AI_GRPC_URL vacío.`,
+    logger.error(
+      'El motor de IA no responde por gRPC: las peticiones quedarán como "failed" hasta que responda. Si no usas el contenedor combinado, deja AI_GRPC_URL vacío',
+      { url: config.aiGrpcUrl },
     );
   }
 };
@@ -80,7 +82,7 @@ export const streamEvaluation = async (requestId, request, onEvent, { timeoutMs 
         pending.push(
           Promise.resolve()
             .then(() => onEvent(event))
-            .catch((err) => console.error('Error procesando un evento del stream gRPC:', err.message)),
+            .catch((err) => logger.error('Error procesando un evento del stream gRPC', { err: err })),
         );
     });
     call.on('error', (err) => {

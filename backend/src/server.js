@@ -13,6 +13,7 @@ import publicRoutes from './routes/public.js';
 import './queue.js';
 import { checkSchema } from './schema-check.js';
 import { checkAiConnection } from './ai-client.js';
+import { logger } from './logger.js';
 const app = express();
 app.set('trust proxy', 1);
 app.use(helmet({ crossOriginResourcePolicy: false }));
@@ -20,7 +21,7 @@ app.use(helmet({ crossOriginResourcePolicy: false }));
 const corsOptions = {
   origin: (origin, cb) => {
     if (isAllowedOrigin(origin)) return cb(null, true);
-    console.warn(`CORS rechazó el origen ${sanitizeForLog(origin)}. Si es el frontend, agrégalo a CORS_ORIGIN.`);
+    logger.warn('CORS rechazó un origen; si es el frontend, agrégalo a CORS_ORIGIN', { origin: sanitizeForLog(origin) });
     cb(new AppError(403, 'Origen no permitido por CORS'));
   },
   credentials: true,
@@ -36,9 +37,9 @@ app.use('/api/public', publicRoutes);
 app.use(notFound);
 app.use(errorHandler);
 const server = app.listen(config.port, () => {
-  console.log(`API listening on ${config.port}`);
-  checkSchema().catch((err) => console.error('Falló la verificación del esquema:', err.message));
-  checkAiConnection().catch((err) => console.error('Falló el diagnóstico del motor:', err.message));
+  logger.info('API escuchando', { port: config.port });
+  checkSchema().catch((err) => logger.error('Falló la verificación del esquema', { err: err }));
+  checkAiConnection().catch((err) => logger.error('Falló el diagnóstico del motor', { err: err }));
 });
 const close = async () => {
   server.close();
@@ -49,5 +50,8 @@ process.on('SIGTERM', close);
 process.on('SIGINT', close);
 // Errores fuera de una petición (worker, Redis, promesas sin catch): que siempre queden en el log.
 process.on('unhandledRejection', (reason) =>
-  console.error('Promesa rechazada sin manejar:', reason instanceof Error ? `${reason.message}\n${reason.stack}` : reason),
+  logger.error(
+    'Promesa rechazada sin manejar',
+    reason instanceof Error ? { err: reason, stack: reason.stack } : { reason: String(reason) },
+  ),
 );
