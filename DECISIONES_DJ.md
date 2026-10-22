@@ -128,3 +128,65 @@ El público pide desde iTunes (catálogo comercial), y la emisora solo puede son
 - Muestra la pista actual con su crédito y las próximas 5 pistas.
 - Se actualiza por SSE. Hay **un solo** suscriptor de Redis por proceso (`psubscribe venue:*`) que reparte los avisos, y polling cada 10 s como respaldo.
 - **No reproduce audio:** se quitan los previews de iTunes de la página pública.
+
+## Peticiones dentro de la emisora (segunda iteración, 2026-10-22)
+
+**Problema:**
+- Los clientes pedían desde iTunes y la emisora sonaba con Jamendo: lo pedido no sonaba.
+- Además, el dueño podía marcar una petición como "Sonada" a mano sin que hubiera sonado.
+
+### Verificación previa (solo lectura)
+
+**CORS de los previews de iTunes:** HEAD y GET con `Range` a `audio-ssl.itunes.apple.com/itunes-assets/...m4a`, desde el origen de Vercel y desde `localhost:5173`. Responden:
+- `Access-Control-Allow-Origin: *`
+- `Access-Control-Allow-Headers: range`
+- `Accept-Ranges: bytes`
+
+**Decisión:** el preview pasa por Web Audio como cualquier pista, con EQ y fundido. Si en algún navegador falla, aplica el mismo respaldo por deck: sin Web Audio, con volumen y fundido.
+
+**Términos de iTunes Search** (<https://performance-partners.apple.com/search-api>):
+- El contenido promocional (previews) se permite "only to promote store content and not for entertainment purposes".
+- Debe estar junto a un enlace a la tienda.
+- Debe llevar la atribución "provided courtesy of iTunes".
+- Debe hacerse "streamed only, and not downloaded, saved, cached".
+- Límite de unas 20 llamadas por minuto, con caché recomendado.
+
+**Choque con los términos:** reproducir previews en la emisora de un local es entretenimiento, no promoción. Se implementa porque se pidió para el proyecto académico, con estas condiciones:
+- Solo se reproduce en streaming desde Apple: nunca se guarda el audio, solo la URL en `track_cache`.
+- Se muestra "Preview 30 s · cortesía de iTunes" con enlace a la página de la canción en Apple.
+- Las búsquedas a iTunes quedan en caché de Redis 10 minutos.
+
+**Para un uso real, quitar el corte de previews** y dejar solo música con licencia (ver "Licencias de la música" en el README).
+
+**Jamendo `/tracks`** (<https://developer.jamendo.com/v3.0/tracks>):
+- `order=popularity_*` usa orden descendente siempre.
+- `boost=popularity_*` es lo indicado al combinar texto (`search`) con popularidad.
+- `tags` filtra con AND y `fuzzytags` con OR.
+- `durationbetween=desde_hasta` filtra por duración en segundos.
+
+**Decisión:**
+- **Buscador:** `search` + `boost=popularity_total`.
+- **Candidatas del AutoDJ:** `fuzzytags` con los géneros del tipo de local y los que aparecen en la descripción del ambiente, `order=popularity_month` y `durationbetween=90_480`. Así se evitan fragmentos muy cortos y mezclas de una hora.
+
+### Diseño
+
+**Buscador público:**
+- Primero Jamendo, que da pistas completas: "Completa".
+- Si hay menos de 5 resultados, completa con iTunes: "Preview 30 s".
+- Los duplicados (mismo título y artista) se quedan con la versión completa.
+
+**Petición:**
+- Guarda el `provider` y la pista (`track_id` para Jamendo; `external_id`, `preview_url` y `store_url` para iTunes). Lo agrega la migración `008`.
+- Al programarla, una petición de iTunes busca primero su versión completa en Jamendo. Si no existe, entra a la cola como "corte de petición": el preview de 30 s con fundido de salida de 4 s, y después sigue el AutoDJ.
+
+**"Sonada":**
+- Solo cuando la pista sale de la emisora después de sonar: terminó o el dueño la saltó.
+- Si no cargó (error), sigue pendiente.
+- El dueño ya no puede marcarla a mano.
+- `mix_history.request_id` deja constancia.
+- La migración 008 devuelve a "aceptada" las peticiones marcadas como sonadas que no tienen ese registro.
+
+**AutoDJ:**
+- En modo AutoDJ intercala las peticiones que el motor aceptó (género y energía compatibles), como mucho dos a la vez en la cola y nunca seguidas.
+- Las que el motor no aceptó ("con transición") esperan la decisión del dueño en la consola.
+- Los géneros y artistas de las peticiones recientes viajan a `SuggestNext` (`request_genres`, `request_artists`) y suben el puntaje de las candidatas parecidas.
