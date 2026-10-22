@@ -10,6 +10,7 @@ import authRoutes from './routes/auth.js';
 import venueRoutes from './routes/venues.js';
 import playerRoutes from './routes/player.js';
 import publicRoutes from './routes/public.js';
+import publicLiveRoutes from './routes/public-live.js';
 import './queue.js';
 import { checkSchema } from './schema-check.js';
 import { checkAiConnection } from './ai-client.js';
@@ -35,6 +36,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/venues/:id/player', playerRoutes);
 app.use('/api/venues', venueRoutes);
 app.use('/api/public', publicRoutes);
+app.use('/api/public', publicLiveRoutes);
 app.use(notFound);
 app.use(errorHandler);
 const server = app.listen(config.port, () => {
