@@ -4,10 +4,13 @@ import { requireSupabaseAuth } from '../supabase-auth.js';
 import { requirePlayerSchema } from '../schema-check.js';
 import { AppError } from '../errors.js';
 import { findCachedTrack } from '../music-catalog.js';
-import { advanceSchema, claimSchema, pauseSchema, playSchema, playerSettingsSchema, queueAddSchema, queueOrderSchema, skipSchema, uuidParam } from '../owner-validation.js';
+import { advanceSchema, claimSchema, pauseSchema, playSchema, playerSettingsSchema, queueAddSchema, queueOrderSchema, requestQueueSchema, skipSchema, uuidParam } from '../owner-validation.js';
 import { advance, claimConsole, enqueue, pause, play, playerSnapshot, removeFromQueue, reorderQueue, updateSettings } from '../player.js';
 import { ownedVenue } from './venues.js';
 import { ensureQueue } from '../autodj.js';
+import { dismissRequest, pendingRequests, queueRequestById } from '../station-requests.js';
+import { hasColumn } from '../schema-check.js';
+import { toStationRequest } from '../player-logic.js';
 
 // Reproductor de la emisora de un local (/api/venues/:id/player). Solo el dueño del local.
 const router = Router({ mergeParams: true });
@@ -51,5 +54,21 @@ router.post('/queue', handle(async (req, res) => {
 }));
 router.patch('/queue', handle(async (req, res) => { await reorderQueue(req.venue.id, queueOrderSchema.parse(req.body ?? {}).order); await reply(req, res); }));
 router.delete('/queue/:itemId', handle(async (req, res) => { await removeFromQueue(req.venue.id, uuidParam.parse(req.params.itemId)); await refillAndReply(req, res); }));
+
+// Peticiones del público en la consola (migración 008): pendientes y acciones del dueño.
+const requireRequests = () => { if (!hasColumn('song_requests.track_id')) throw new AppError(503, 'Las peticiones en la emisora no están listas: falta ejecutar la migración 008_peticiones_emisora.sql.'); };
+const replyRequests = async (req, res) => res.json({ requests: (await pendingRequests(req.venue.id)).map((row) => toStationRequest(row)) });
+router.get('/requests', handle(async (req, res) => { requireRequests(); await replyRequests(req, res); }));
+router.post('/requests/:requestId/queue', handle(async (req, res) => {
+  requireRequests();
+  const { next } = requestQueueSchema.parse(req.body ?? {});
+  await queueRequestById(req.venue, uuidParam.parse(req.params.requestId), { next, reason: next ? 'El DJ la puso ahora.' : 'El DJ la agregó a la cola.' });
+  await reply(req, res);
+}));
+router.post('/requests/:requestId/dismiss', handle(async (req, res) => {
+  requireRequests();
+  await dismissRequest(req.venue, uuidParam.parse(req.params.requestId));
+  await replyRequests(req, res);
+}));
 
 export default router;
