@@ -48,7 +48,8 @@ test('rechaza formatos inválidos', () => {
   assert.match(problems({ ...VALID, PORT: '70000' }), /puerto válido/);
   assert.match(problems({ ...VALID, AI_GRPC_URL: 'sin-puerto' }), /host:puerto/);
   assert.match(problems({ ...VALID, AI_GRPC_TLS: 'si' }), /true o false/);
-  assert.match(problems({ ...VALID, CORS_ORIGIN: 'https://ok.app,https://mal.app/' }), /mal\.app\/" no es un origen válido/);
+  assert.match(problems({ ...VALID, CORS_ORIGIN: 'https://ok.app,https://mal.app/ruta' }), /mal\.app\/ruta" no es un origen válido/);
+  assert.match(problems({ ...VALID, CORS_ORIGIN: 'ftp://mal.app' }), /no es un origen válido/);
 });
 
 test('no acepta secretos cortos ni servicios externos por http', () => {
@@ -70,4 +71,8 @@ test('suma los orígenes de CORS_ORIGIN a los conocidos sin repetir', () => {
   const config = parseConfig({ ...VALID, CORS_ORIGIN: 'https://mi-front.vercel.app, http://localhost:5173' });
   assert.ok(config.origins.includes('https://mi-front.vercel.app'));
   assert.equal(config.origins.filter((o) => o === 'http://localhost:5173').length, 1);
+});
+
+test('acepta orígenes con barra final y la quita', () => {
+  assert.ok(parseConfig({ ...VALID, CORS_ORIGIN: 'https://mi-front.vercel.app/' }).origins.includes('https://mi-front.vercel.app'));
 });

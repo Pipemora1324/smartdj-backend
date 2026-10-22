@@ -63,9 +63,12 @@ const listFrom = (value) =>
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
+// Una barra final copiada desde el navegador no impide arrancar: "https://x.app/" equivale a "https://x.app".
+const corsOrigins = (value) => listFrom(value).map((origin) => origin.replace(/\/+$/, ''));
 const isOrigin = (value) => {
   try {
-    return new URL(value).origin === value;
+    const url = new URL(value);
+    return ['http:', 'https:'].includes(url.protocol) && url.origin === value;
   } catch {
     return false;
   }
@@ -77,8 +80,8 @@ const crossIssues = (env) => {
   const jwks = String(env.SUPABASE_JWKS_URL || '').trim();
   if (!jwks && !String(env.SUPABASE_JWT_SECRET || '').trim()) issues.push('SUPABASE_JWKS_URL: falta (o define SUPABASE_JWT_SECRET)');
   if (jwks && !/^https?:\/\//.test(jwks)) issues.push('SUPABASE_JWKS_URL: debe ser una URL http(s)');
-  for (const origin of listFrom(env.CORS_ORIGIN)) {
-    if (!isOrigin(origin)) issues.push(`CORS_ORIGIN: "${origin}" no es un origen válido (esquema://host[:puerto], sin barra final)`);
+  for (const origin of corsOrigins(env.CORS_ORIGIN)) {
+    if (!isOrigin(origin)) issues.push(`CORS_ORIGIN: "${origin}" no es un origen válido (http(s)://host[:puerto], sin ruta)`);
   }
   return issues;
 };
@@ -114,7 +117,7 @@ export const parseConfig = (env) => {
     return e.REDIS_URL;
   })();
   // Lista de origenes permitidos (separados por coma en CORS_ORIGIN).
-  const origins = listFrom(e.CORS_ORIGIN);
+  const origins = corsOrigins(e.CORS_ORIGIN);
   return {
     port: e.PORT,
     dbUrl: e.DATABASE_URL,
