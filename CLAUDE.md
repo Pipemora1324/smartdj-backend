@@ -36,6 +36,11 @@ Plataforma para locales (cafeterías, restaurantes, bares). El dueño crea cuent
   - El contrato es `SuggestNext` en `compatibility.proto`, con la lógica en `ai/app/autodj.py`; `POST /suggest-next` es el modo HTTP.
 - **Página pública:** nunca expone audio, ids de petición, nombres de clientes ni el `consoleId`. Los avisos van por `venue-events.js`, con un solo suscriptor de Redis.
 - **Supabase:** toda tabla nueva va con `ENABLE ROW LEVEL SECURITY` (la clave anon es pública).
+- **Peticiones en la emisora (008):**
+  - `station-requests.js` decide qué pista suena por cada petición: Jamendo completa o preview de iTunes de 30 s con fundido.
+  - "Sonada" la marca solo `player.js` cuando la petición sale de la emisora después de sonar. **Nunca la marques a mano.**
+  - El AutoDJ intercala las que el motor aceptó (máximo dos en cola) y pasa los géneros y artistas pedidos a `SuggestNext`.
+  - Los previews de iTunes nunca son candidatas del AutoDJ.
 
 ## Reglas fijas
 
