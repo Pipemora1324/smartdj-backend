@@ -4,7 +4,7 @@ import { requireSupabaseAuth } from '../supabase-auth.js';
 import { AppError } from '../errors.js';
 import { trackSearchSchema, uuidParam, venuePatchSchema, venueSchema } from '../owner-validation.js';
 import { requirePlayerSchema } from '../schema-check.js';
-import { rateLimit } from 'express-rate-limit';
+import { LIMITS, byOwner, createLimiter } from '../rate-limits.js';
 import { searchCatalog } from '../music-catalog.js';
 import { tagsForVenueProfile, toPublicTrack } from '../catalog-logic.js';
 const router = Router();
@@ -51,14 +51,7 @@ router.patch('/:id', async (req, res, next) => {
   }
 });
 // Catálogo de la emisora (Jamendo y, si está configurado, Audius). Límite por dueño para cuidar la cuota del proveedor.
-const trackSearchLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  limit: 30,
-  standardHeaders: 'draft-7',
-  legacyHeaders: false,
-  keyGenerator: (req) => req.user.sub,
-  message: { error: 'Hiciste muchas búsquedas seguidas. Espera un momento.' },
-});
+const trackSearchLimiter = createLimiter({ ...LIMITS.ownerSearch, keyGenerator: byOwner });
 router.get('/:id/tracks/search', trackSearchLimiter, async (req, res, next) => {
   try {
     const venue = await ownedVenue(req.params.id, req.user.sub);
