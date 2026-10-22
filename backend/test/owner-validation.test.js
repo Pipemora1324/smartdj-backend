@@ -16,9 +16,10 @@ test('editar local acepta campos parciales pero no un cuerpo vacío', () => {
   assert.equal(message(() => venuePatchSchema.parse({})), 'No hay cambios para guardar.');
 });
 
-test('el estado de una petición solo puede ser accepted, rejected o played', () => {
-  for (const status of ['accepted', 'rejected', 'played']) assert.equal(requestStatusSchema.parse({ status }).status, status);
-  assert.equal(message(() => requestStatusSchema.parse({ status: 'queued' })), 'El estado debe ser accepted, rejected o played.');
+test('el dueño solo acepta o rechaza; "sonada" la marca la emisora', () => {
+  for (const status of ['accepted', 'rejected']) assert.equal(requestStatusSchema.parse({ status }).status, status);
+  assert.equal(message(() => requestStatusSchema.parse({ status: 'played' })), 'El estado debe ser accepted o rejected.');
+  assert.equal(message(() => requestStatusSchema.parse({ status: 'queued' })), 'El estado debe ser accepted o rejected.');
 });
 
 test('los ids deben ser UUID', () => {

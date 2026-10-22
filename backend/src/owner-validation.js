@@ -2,7 +2,8 @@ import { z } from 'zod';
 
 // Validaciones del panel del dueño (bloque C). Mensajes en español para mostrarlos tal cual.
 export const VENUE_KINDS = ['restaurant', 'cafe', 'salsa_bar', 'nightclub', 'lounge', 'other'];
-export const OWNER_STATUSES = ['accepted', 'rejected', 'played'];
+// "Sonada" no se marca a mano: la marca la emisora cuando la petición realmente suena.
+export const OWNER_STATUSES = ['accepted', 'rejected'];
 
 export const uuidParam = z.string().uuid('El identificador no es válido.');
 
@@ -17,7 +18,7 @@ export const venuePatchSchema = venueSchema.extend({
 }).partial().refine((d) => Object.keys(d).length > 0, { message: 'No hay cambios para guardar.' });
 
 export const requestStatusSchema = z.object({
-  status: z.enum(OWNER_STATUSES, { errorMap: () => ({ message: 'El estado debe ser accepted, rejected o played.' }) }),
+  status: z.enum(OWNER_STATUSES, { errorMap: () => ({ message: 'El estado debe ser accepted o rejected.' }) }),
 });
 
 export const listLimit = z.preprocess((v) => (v === undefined ? 50 : v), z.coerce.number().int().min(1).max(100));
