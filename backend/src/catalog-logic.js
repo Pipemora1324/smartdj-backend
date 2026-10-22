@@ -1,7 +1,11 @@
 // Lógica pura del catálogo de la emisora (sin base de datos ni Redis), para poder probarla aislada.
 import { fallbackAudioUrlFor } from './music-providers/jamendo.js';
 export const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const PROVIDER_NAMES = { jamendo: 'Jamendo', audius: 'Audius' };
+const PROVIDER_NAMES = { jamendo: 'Jamendo', audius: 'Audius', itunes: 'iTunes' };
+// iTunes solo da previews de 30 s (corte de petición); Jamendo y Audius, pistas completas.
+export const PREVIEW_PROVIDERS = new Set(['itunes']);
+export const trackKind = (provider) => (PREVIEW_PROVIDERS.has(provider) ? 'preview' : 'full');
+export const KIND_LABELS = { full: 'Completa', preview: 'Preview 30 s' };
 
 // Géneros (tags de Jamendo) por tipo de local, y radio de Jamendo de respaldo.
 export const VENUE_TAGS = {
@@ -45,6 +49,7 @@ export const buildTrackUpsert = (tracks) => {
 // Pista guardada → formato de la API, con el crédito que exige la licencia. withAudio=false para la página pública.
 export const toPublicTrack = (row, { withAudio = true } = {}) => row && ({
   id: row.id, provider: row.provider, externalId: row.external_id, title: row.title, artist: row.artist, genre: row.genre,
+  kind: trackKind(row.provider), kindLabel: KIND_LABELS[trackKind(row.provider)],
   durationSeconds: row.duration_seconds, artworkUrl: row.artwork_url, energy: row.energy, bpm: Number(row.bpm) || 0, musicalKey: row.musical_key || '',
   ...(withAudio ? { audioUrl: row.audio_url, audioFallbackUrl: row.provider === 'jamendo' ? fallbackAudioUrlFor(row.external_id) : null, waveform: row.waveform ?? [] } : {}),
   credit: {
@@ -81,3 +86,20 @@ export const tagsForGenre = (genre) => {
   const text = normalizeText(genre);
   return GENRE_HINTS.find(([pattern]) => pattern.test(text))?.[1] ?? [];
 };
+
+// Todos los géneros que aparecen en un texto libre (p. ej. el ambiente del local: "jazz y lounge suave").
+export const tagsInText = (text) => {
+  const normalized = normalizeText(text);
+  return [...new Set(GENRE_HINTS.filter(([pattern]) => pattern.test(normalized)).flatMap(([, tags]) => tags))];
+};
+// Géneros para las candidatas del AutoDJ: primero los del ambiente que escribió el dueño, luego los del tipo de local.
+export const tagsForVenueProfile = (venue) => [...new Set([...tagsInText(venue?.ambience), ...tagsForVenue(venue?.kind)])];
+
+// Petición de iTunes → pista para la cola: el preview de 30 s (solo la URL; el audio se reproduce desde Apple).
+export const PREVIEW_SECONDS = 30;
+export const itunesRequestTrack = (request) => (request?.preview_url && request.external_id ? {
+  provider: 'itunes', externalId: String(request.external_id), title: request.title, artist: request.artist, genre: request.genre || '',
+  durationSeconds: PREVIEW_SECONDS, artworkUrl: request.artwork_url ?? null, audioUrl: request.preview_url, shareUrl: request.store_url ?? null,
+  licenseUrl: null, licenseLabel: 'Preview cortesía de iTunes', nonCommercial: true, energy: 0,
+  bpm: Number(request.bpm) || 0, musicalKey: request.musical_key || '', waveform: [],
+} : null);

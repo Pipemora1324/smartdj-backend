@@ -71,3 +71,31 @@ test('el género de una petición de iTunes se traduce a tags de Jamendo', async
   assert.deepEqual(tagsForGenre('Pop Latino'), ['latin', 'reggaeton']);
   assert.deepEqual(tagsForGenre('Clásica'), []);
 });
+
+test('distingue pistas completas de previews y lo muestra en la pista pública', async () => {
+  const { toPublicTrack: publicTrack, trackKind } = await import('../src/catalog-logic.js');
+  assert.equal(trackKind('jamendo'), 'full');
+  assert.equal(trackKind('itunes'), 'preview');
+  const preview = publicTrack({ ...ROW, provider: 'itunes', license_label: 'Preview cortesía de iTunes' });
+  assert.deepEqual([preview.kind, preview.kindLabel, preview.credit.source, preview.audioFallbackUrl], ['preview', 'Preview 30 s', 'iTunes', null]);
+  assert.equal(publicTrack(ROW).kindLabel, 'Completa');
+});
+
+test('saca géneros del ambiente del local y los pone antes que los del tipo', async () => {
+  const { tagsInText, tagsForVenueProfile } = await import('../src/catalog-logic.js');
+  assert.deepEqual(tagsInText('Jazz suave y algo de salsa'), ['latin', 'reggaeton', 'jazz']);
+  assert.deepEqual(tagsInText(''), []);
+  const tags = tagsForVenueProfile({ kind: 'nightclub', ambience: 'Rock en vivo' });
+  assert.equal(tags[0], 'rock');
+  assert.ok(tags.includes('electronic'));
+  assert.equal(new Set(tags).size, tags.length);
+});
+
+test('convierte una petición de iTunes en un corte de 30 s', async () => {
+  const { itunesRequestTrack } = await import('../src/catalog-logic.js');
+  const request = { external_id: '1440818839', title: 'Vivir Mi Vida', artist: 'Marc Anthony', genre: 'Salsa', preview_url: 'https://audio-ssl.itunes.apple.com/x.m4a', store_url: 'https://music.apple.com/co/album/x', artwork_url: null, bpm: null, musical_key: null };
+  const track = itunesRequestTrack(request);
+  assert.deepEqual([track.provider, track.durationSeconds, track.audioUrl, track.shareUrl, track.nonCommercial], ['itunes', 30, request.preview_url, request.store_url, true]);
+  assert.equal(itunesRequestTrack({ ...request, preview_url: null }), null);
+  assert.equal(itunesRequestTrack(null), null);
+});
