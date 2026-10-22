@@ -331,8 +331,18 @@ Página pública ◀── SSE /venues/:code/events ◀── Redis venue:<id>
 ## Pruebas
 
 ```bash
-cd backend && npm test                           # 67 pruebas (Node)
-cd ai && python -m unittest discover -s tests    # 43 pruebas (Python; las 2 de /suggest-next por HTTP necesitan fastapi y httpx)
+cd backend && npm test                           # pruebas del backend (Node)
+cd ai && python -m unittest discover -s tests    # pruebas del motor (Python; las 2 de /suggest-next por HTTP necesitan fastapi y httpx)
+```
+
+### Lint y formato
+
+```bash
+cd backend
+npm run lint            # ESLint (eslint.config.js)
+npm run lint:fix        # corrige lo automático
+npm run format          # Prettier sobre todo el backend (.prettierrc.json)
+npm run format:check    # solo revisa, útil antes de un push
 ```
 
 Las pruebas de punta a punta de la emisora se hicieron con Postgres y Redis en Docker, el motor por gRPC, un Jamendo simulado (`JAMENDO_API_URL`) y la consola en un navegador headless. El audio era real, desde los servidores de Jamendo. Nunca se probó contra producción ni contra el Supabase real.
