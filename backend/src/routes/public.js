@@ -2,7 +2,7 @@ import { Router } from 'express'; import { z } from 'zod'; import { query } from
 import { rateLimit } from 'express-rate-limit'; import { redis } from '../redis.js'; import { FINAL_STAGES, publishRequestEvent, readRequestStatus, statusChannel } from '../request-status.js';
 import { lookupTrack, searchTracks } from '../music-search.js'; import { hasColumn } from '../schema-check.js';
 import { playerSnapshot } from '../player.js'; import { listenVenue } from '../venue-events.js';
-import { availableProviders, findCachedTrack, searchCatalog } from '../music-catalog.js'; import { SEARCH_MIN_FULL, mergeSearchResults, toPublicTrack } from '../catalog-logic.js';
+import { availableProviders, findCachedTrack, searchCatalog } from '../music-catalog.js'; import { requestsByIds } from '../station-requests.js'; import { toStationRequest } from '../player-logic.js'; import { requestIdsSchema } from '../owner-validation.js'; import { SEARCH_MIN_FULL, mergeSearchResults, toPublicTrack } from '../catalog-logic.js';
 // BPM y tonalidad son opcionales: "", null o espacios cuentan como "sin dato".
 const emptyToUndefined=(v)=>(v===null||(typeof v==='string'&&v.trim()==='')?undefined:v);
 const router=Router();
@@ -43,7 +43,8 @@ const insertRequest=async(venueId,guestName,song,extra)=>{
   const columns=['establishment_id','guest_name','title','artist','genre','bpm','musical_key'];
   const values=[venueId,guestName,song.title,song.artist,song.genre,extra.bpm||null,extra.musicalKey||null];
   for(const [column,value] of [['external_id',song.trackId],['artwork_url',song.artworkUrl],['preview_url',song.previewUrl],['provider',song.provider],['track_id',song.trackCacheId],['store_url',song.storeUrl]]){
-    if(hasColumn(`song_requests.${column}`)){columns.push(column);values.push(value??null);}
+    // Sin valor se omite la columna y Postgres usa su valor por defecto (provider es NOT NULL con 'itunes').
+    if(hasColumn(`song_requests.${column}`)&&value!==undefined){columns.push(column);values.push(value);}
   }
   const r=await query(`INSERT INTO song_requests(${columns.join(',')}) VALUES(${values.map((_,i)=>`$${i+1}`).join(',')}) RETURNING id`,values);
   return r.rows[0];
@@ -182,6 +183,15 @@ router.get('/requests/:id/events', streamLimiter, async (req, res, next) => {
     console.error('No se pudo iniciar el SSE:', err.message);
     close();
   }
+});
+// Estado de las peticiones propias del cliente (ids guardados en su navegador). Sin nombres de quien pidió.
+router.get('/venues/:code/requests', nowLimiter, async (req, res, next) => {
+  try {
+    const ids = requestIdsSchema.parse(req.query.ids);
+    const venue = await findVenue(req.params.code);
+    if (!hasColumn('song_requests.track_id')) return res.json({ requests: [] });
+    res.json({ requests: (await requestsByIds(venue.id, ids)).map((row) => toStationRequest(row, { withGuest: false })) });
+  } catch (e) { next(e); }
 });
 // Avisos en vivo del local para la página pública: solo el tipo de cambio ("player_updated", ...); la página
 // vuelve a pedir /now. Se cierra a los 5 minutos y EventSource se reconecta solo.
