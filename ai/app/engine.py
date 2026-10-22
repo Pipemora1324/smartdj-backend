@@ -1,5 +1,4 @@
 # Lógica de compatibilidad compartida por la API HTTP (main.py) y el servidor gRPC (grpc_server.py).
-# Es la misma heurística que tenía main.py; los ajustes del motor quedan para la Fase 5.
 import re
 import unicodedata
 
