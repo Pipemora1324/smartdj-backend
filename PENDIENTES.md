@@ -67,3 +67,11 @@ Antes deben estar aplicadas `001` y `002`, de fases anteriores. Mientras falten 
   - Si pasa seguido, considerar un proxy de audio en un servicio de pago.
 - **Pistas que no cargan:** se saltan, pero pueden volver a programarse cuando salen de las últimas 30 del historial. Mejora posible: marcarlas como rotas en `track_cache`.
 - **Sin pruebas reales:** no se probó con un Client ID real de Jamendo (no hay cuenta) ni contra tu Supabase. El formato de la respuesta se tomó de la documentación oficial y del Jamendo simulado.
+
+## 6. Peticiones dentro de la emisora (2026-10-22)
+
+- **SQL:** `database/migrations/008_peticiones_emisora.sql`, después de la 006 y la 007. Además de las columnas nuevas, devuelve a "aceptada" las peticiones marcadas como sonadas que nunca sonaron. Sin la 008, la pestaña Peticiones de la consola muestra que falta la migración y el resto sigue funcionando.
+- **Previews de iTunes en la emisora:** van contra los términos de Apple (solo promoción, no entretenimiento). Se dejaron por pedido del proyecto académico; para un uso real hay que quitar el "corte de petición".
+- **Cuota de iTunes:** unas 20 consultas por minuto. El buscador público usa iTunes solo si Jamendo devuelve menos de 5 resultados, con caché de 10 minutos en Redis.
+- **Historial de antes de la 008:** las peticiones que sí sonaron antes de esa migración no tienen `mix_history.request_id`, así que la corrección también las devuelve a "aceptada". Afecta solo a datos de prueba.
+
