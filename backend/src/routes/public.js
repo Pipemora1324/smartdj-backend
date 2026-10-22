@@ -56,7 +56,7 @@ const NOW_QUEUE_LIMIT=10;
 const publicSong=(r)=>({id:r.id,title:r.title,artist:r.artist,genre:r.genre,artworkUrl:r.artwork_url??null,previewUrl:r.preview_url??null});
 // Emisora (006): si el local tiene reproductor con una pista, se muestra esa pista con su crédito y la cola de la emisora.
 const STATION_QUEUE_LIMIT=5;
-const stationSong=(track,extra={})=>({id:track.id,title:track.title,artist:track.artist,genre:track.genre,artworkUrl:track.artworkUrl,previewUrl:null,credit:track.credit,...extra});
+const stationSong=(track,extra={})=>({id:track.id,title:track.title,artist:track.artist,genre:track.genre,artworkUrl:track.artworkUrl,previewUrl:null,kind:track.kind,kindLabel:track.kindLabel,credit:track.credit,...extra});
 const stationNow=async(venueId)=>{
   if(!hasColumn('player_state.establishment_id'))return null;
   const snap=await playerSnapshot(venueId,{withAudio:false,queueLimit:STATION_QUEUE_LIMIT,create:false});
