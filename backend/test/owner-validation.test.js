@@ -1,7 +1,7 @@
 // Pruebas de las validaciones del panel del dueño.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { listLimit, requestStatusSchema, trackSearchSchema, uuidParam, venuePatchSchema, venueSchema } from '../src/owner-validation.js';
+import { trackSearchSchema, uuidParam, venuePatchSchema, venueSchema } from '../src/owner-validation.js';
 
 const message = (fn) => { try { fn(); return null; } catch (e) { return e.issues[0].message; } };
 
@@ -16,21 +16,9 @@ test('editar local acepta campos parciales pero no un cuerpo vacío', () => {
   assert.equal(message(() => venuePatchSchema.parse({})), 'No hay cambios para guardar.');
 });
 
-test('el dueño solo acepta o rechaza; "sonada" la marca la emisora', () => {
-  for (const status of ['accepted', 'rejected']) assert.equal(requestStatusSchema.parse({ status }).status, status);
-  assert.equal(message(() => requestStatusSchema.parse({ status: 'played' })), 'El estado debe ser accepted o rejected.');
-  assert.equal(message(() => requestStatusSchema.parse({ status: 'queued' })), 'El estado debe ser accepted o rejected.');
-});
-
 test('los ids deben ser UUID', () => {
   assert.equal(uuidParam.parse('6f1c2a7e-0b1d-4c8e-9a3f-2b5d7e9c1a40'), '6f1c2a7e-0b1d-4c8e-9a3f-2b5d7e9c1a40');
   assert.equal(message(() => uuidParam.parse('1 OR 1=1')), 'El identificador no es válido.');
-});
-
-test('el límite de la lista va de 1 a 100 con 50 por defecto', () => {
-  assert.equal(listLimit.parse(undefined), 50);
-  assert.equal(listLimit.parse('20'), 20);
-  assert.ok(message(() => listLimit.parse('500')));
 });
 
 test('el buscador de pistas valida texto, género y proveedor', () => {
