@@ -2,7 +2,7 @@ import { Router } from 'express'; import { z } from 'zod'; import { query } from
 import { rateLimit } from 'express-rate-limit'; import { redis } from '../redis.js'; import { FINAL_STAGES, publishRequestEvent, readRequestStatus, statusChannel } from '../request-status.js';
 import { lookupTrack, searchTracks } from '../music-search.js'; import { hasColumn } from '../schema-check.js';
 import { playerSnapshot } from '../player.js'; import { listenVenue } from '../venue-events.js';
-import { availableProviders, searchCatalog } from '../music-catalog.js'; import { SEARCH_MIN_FULL, mergeSearchResults, toPublicTrack } from '../catalog-logic.js';
+import { availableProviders, findCachedTrack, searchCatalog } from '../music-catalog.js'; import { SEARCH_MIN_FULL, mergeSearchResults, toPublicTrack } from '../catalog-logic.js';
 // BPM y tonalidad son opcionales: "", null o espacios cuentan como "sin dato".
 const emptyToUndefined=(v)=>(v===null||(typeof v==='string'&&v.trim()==='')?undefined:v);
 const router=Router();
@@ -11,9 +11,12 @@ const optionalText=(max)=>z.preprocess(emptyToUndefined,z.string().trim().min(1)
 const payload=z.object({
   guestName:z.preprocess(emptyToUndefined,z.string().trim().min(2,'El nombre debe tener al menos 2 caracteres.').max(60,'El nombre puede tener hasta 60 caracteres.').optional()),
   trackId:z.preprocess(emptyToUndefined,z.string().trim().regex(/^\d{1,20}$/,'La canción elegida no es válida.').optional()),
+  // Pista completa del catálogo libre (Jamendo), elegida en el buscador.
+  provider:z.preprocess(emptyToUndefined,z.enum(['jamendo'],{errorMap:()=>({message:'La canción elegida no es válida.'})}).optional()),
+  externalId:z.preprocess(emptyToUndefined,z.string().trim().regex(/^\d{1,12}$/,'La canción elegida no es válida.').optional()),
   title:optionalText(140),artist:optionalText(140),genre:optionalText(60),
   bpm:z.preprocess(emptyToUndefined,z.coerce.number().positive().max(300).optional()),musicalKey:z.preprocess(emptyToUndefined,z.string().trim().max(15).optional()),
-}).refine((d)=>d.trackId||(d.title&&d.artist),{message:'Elige una canción del buscador.'});
+}).refine((d)=>d.trackId||(d.provider&&d.externalId)||(d.title&&d.artist),{message:'Elige una canción del buscador.'});
 const searchQuery=z.string({required_error:'Escribe qué canción buscas.',invalid_type_error:'Escribe qué canción buscas.'}).trim().min(2,'Escribe al menos 2 caracteres.').max(100,'La búsqueda puede tener hasta 100 caracteres.');
 const limiter=(limit,message)=>rateLimit({windowMs:60*1000,limit,standardHeaders:'draft-7',legacyHeaders:false,message:{error:message}});
 const requestLimiter=limiter(10,'Enviaste muchas peticiones seguidas. Espera un minuto.');
@@ -39,7 +42,7 @@ const cachedSearch=async(term)=>{
 const insertRequest=async(venueId,guestName,song,extra)=>{
   const columns=['establishment_id','guest_name','title','artist','genre','bpm','musical_key'];
   const values=[venueId,guestName,song.title,song.artist,song.genre,extra.bpm||null,extra.musicalKey||null];
-  for(const [column,value] of [['external_id',song.trackId],['artwork_url',song.artworkUrl],['preview_url',song.previewUrl]]){
+  for(const [column,value] of [['external_id',song.trackId],['artwork_url',song.artworkUrl],['preview_url',song.previewUrl],['provider',song.provider],['track_id',song.trackCacheId],['store_url',song.storeUrl]]){
     if(hasColumn(`song_requests.${column}`)){columns.push(column);values.push(value??null);}
   }
   const r=await query(`INSERT INTO song_requests(${columns.join(',')}) VALUES(${values.map((_,i)=>`$${i+1}`).join(',')}) RETURNING id`,values);
@@ -87,13 +90,27 @@ router.get('/venues/:code/search',searchLimiter,async(req,res,next)=>{
     res.json(mergeSearchResults(full,previews));
   }catch(e){next(e);}
 });
+// Canción pedida: pista completa de Jamendo (ya en el caché por el buscador), preview de iTunes o texto (clientes viejos).
+const requestedSong=async(venue,d)=>{
+  if(d.provider==='jamendo'){
+    const row=hasColumn('track_cache.id')?await findCachedTrack('jamendo',d.externalId):null;
+    if(!row)throw new AppError(404,'No encontramos esa canción. Búscala de nuevo.');
+    if(row.non_commercial&&venue.exclude_non_commercial)throw new AppError(409,'Este local solo programa canciones con licencia comercial. Elige otra.');
+    return {title:row.title,artist:row.artist,genre:row.genre||'Sin género',trackId:row.external_id,artworkUrl:row.artwork_url,provider:'jamendo',trackCacheId:row.id};
+  }
+  if(d.trackId){
+    const track=await lookupTrack(d.trackId);
+    if(!track)throw new AppError(404,'No encontramos esa canción. Busca otra.');
+    return {...track,provider:'itunes'};
+  }
+  return {title:d.title,artist:d.artist,genre:d.genre||'Sin género'};
+};
 router.post('/venues/:code/requests',requestLimiter,async(req,res,next)=>{try{
   const d=payload.parse(req.body);
   const venue=await findVenue(req.params.code);
-  const track=d.trackId?await lookupTrack(d.trackId):null;
-  if(d.trackId&&!track)throw new AppError(404,'No encontramos esa canción. Busca otra.');
-  const song=track??{title:d.title,artist:d.artist,genre:d.genre||'Sin género'};
+  const song=await requestedSong(venue,d);
   const row=await insertRequest(venue.id,d.guestName||'Invitado',song,d);
+  void redis.publish(`venue:${venue.id}`,JSON.stringify({type:'request_created',requestId:row.id})).catch((err)=>console.error('No se pudo avisar la petición nueva:',err.message));
   await publishRequestEvent(row.id,{stage:'queued',message:'Tu petición está en la cola.',partialScore:0}).catch((err)=>console.error('No se pudo publicar el estado inicial de la petición:',err.message));try{await requestQueue.add('evaluate',{requestId:row.id},evaluationJobOptions);}catch(err){console.error('No se pudo encolar la petición:',err.message);throw new AppError(503,'Recibimos tu petición, pero no pudimos ponerla en la cola. Intenta de nuevo en un momento.');}res.status(202).json({id:row.id,status:'queued',message:'Tu petición será evaluada por Smart DJ.'});}catch(e){next(e);}});
 
 // ---------- Estado en vivo de una petición (polling y SSE) ----------
