@@ -99,3 +99,18 @@ test('convierte una petición de iTunes en un corte de 30 s', async () => {
   assert.equal(itunesRequestTrack({ ...request, preview_url: null }), null);
   assert.equal(itunesRequestTrack(null), null);
 });
+
+test('el buscador público prefiere pistas completas y completa con previews sin repetir', async () => {
+  const { mergeSearchResults } = await import('../src/catalog-logic.js');
+  const full = (n) => Array.from({ length: n }, (_, i) => ({ provider: 'jamendo', externalId: String(i), title: `Tema ${i}`, artist: 'Ana', genre: 'pop', artworkUrl: null, durationSeconds: 200, credit: {}, audioUrl: 'https://x' }));
+  const previews = [
+    { trackId: '1', title: 'Tema 0', artist: 'Ana', genre: 'Pop', previewUrl: 'https://audio-ssl.itunes.apple.com/a.m4a', storeUrl: 'https://music.apple.com/x' },
+    { trackId: '2', title: 'Otra', artist: 'Beto', genre: 'Pop', previewUrl: 'https://audio-ssl.itunes.apple.com/b.m4a', storeUrl: null },
+  ];
+  const few = mergeSearchResults(full(2), previews);
+  assert.deepEqual(few.map((r) => `${r.kindLabel}:${r.title}`), ['Completa:Tema 0', 'Completa:Tema 1', 'Preview 30 s:Otra']);
+  assert.ok(few.every((r) => !('previewUrl' in r) && !('audioUrl' in r)));
+  assert.equal(mergeSearchResults(full(6), previews).every((r) => r.kind === 'full'), true);
+  assert.equal(mergeSearchResults(full(12), []).length, 10);
+  assert.deepEqual(mergeSearchResults([], previews).map((r) => r.trackId), ['1', '2']);
+});

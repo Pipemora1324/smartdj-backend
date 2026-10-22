@@ -103,3 +103,22 @@ export const itunesRequestTrack = (request) => (request?.preview_url && request.
   licenseUrl: null, licenseLabel: 'Preview cortesía de iTunes', nonCommercial: true, energy: 0,
   bpm: Number(request.bpm) || 0, musicalKey: request.musical_key || '', waveform: [],
 } : null);
+
+// Buscador público: primero las pistas completas (Jamendo); si hay menos de minFull, se completa con previews
+// de iTunes sin repetir canciones que ya están completas. Sin URLs de audio (la página pública no reproduce).
+export const SEARCH_MIN_FULL = 5;
+export const SEARCH_MAX_RESULTS = 10;
+export const mergeSearchResults = (fullTracks, previewTracks, { minFull = SEARCH_MIN_FULL, max = SEARCH_MAX_RESULTS } = {}) => {
+  const full = fullTracks.slice(0, max).map((t) => ({
+    source: t.provider, kind: 'full', kindLabel: KIND_LABELS.full, provider: t.provider, externalId: t.externalId,
+    title: t.title, artist: t.artist, genre: t.genre, artworkUrl: t.artworkUrl, durationSeconds: t.durationSeconds, credit: t.credit,
+  }));
+  if (full.length >= minFull) return full;
+  const previews = previewTracks
+    .filter((p) => !full.some((f) => matchesRequest(f, p.title, p.artist)))
+    .map((p) => ({
+      source: 'itunes', kind: 'preview', kindLabel: KIND_LABELS.preview, trackId: p.trackId,
+      title: p.title, artist: p.artist, genre: p.genre, artworkUrl: p.artworkUrl, durationSeconds: 30, storeUrl: p.storeUrl ?? null,
+    }));
+  return [...full, ...previews].slice(0, max);
+};
