@@ -26,14 +26,7 @@ const knownOrigins = [
 
 export const config = {
   port: Number(process.env.PORT || 3000), dbUrl: process.env.DATABASE_URL, redisUrl,
-  // Fallbacks estables solo para desarrollo. En producción exigimos secretos
-  // definidos por el operador para no firmar tokens con valores públicos.
-  accessSecret: process.env.JWT_ACCESS_SECRET,
-  refreshSecret: process.env.JWT_REFRESH_SECRET,
   aiUrl: process.env.AI_SERVICE_URL, origins: [...new Set([...origins, ...knownOrigins])],
-  production: process.env.NODE_ENV === 'production', cookieSecure: process.env.COOKIE_SECURE === 'true',
-  publicAppUrl: process.env.PUBLIC_APP_URL || 'https://smart-dj-platform-frontend.vercel.app',
-  resendApiKey: process.env.RESEND_API_KEY, authCodeSecret: process.env.AUTH_CODE_SECRET,
   supabaseUrl: process.env.SUPABASE_URL || '', supabaseJwksUrl: process.env.SUPABASE_JWKS_URL || '', supabaseJwtSecret: process.env.SUPABASE_JWT_SECRET || '',
   // gRPC con el motor de IA: si AI_GRPC_URL (host:puerto) está vacío se usa HTTP con AI_SERVICE_URL.
   aiGrpcUrl: process.env.AI_GRPC_URL || '', aiGrpcTls: process.env.AI_GRPC_TLS === 'true',
@@ -43,11 +36,6 @@ export const config = {
   jamendoMonthlyBudget: Number(process.env.JAMENDO_MONTHLY_BUDGET || 30000),
   // Audius es opcional y la clave solo vive en el servidor.
   audiusApiKey: process.env.AUDIUS_API_KEY || '',
-  smtp: {
-    host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587),
-    user: process.env.SMTP_USER, pass: process.env.SMTP_PASS,
-    from: process.env.MAIL_FROM || 'SmartDJ <no-reply@smartdj.app>',
-  },
 };
 
 // Verdadero si el origen de la peticion esta permitido.
