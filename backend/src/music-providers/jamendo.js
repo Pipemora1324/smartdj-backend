@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { AppError } from '../errors.js';
+import { AppError, sanitizeForLog } from '../errors.js';
 
 // Proveedor de pistas completas con licencia Creative Commons (ver DECISIONES_DJ.md).
 // Funciones puras (mapeo y licencias) + un cliente que recibe su configuración; no lee config.js
@@ -111,7 +111,7 @@ export const createJamendoClient = ({ clientId, apiUrl = 'https://api.jamendo.co
     try {
       const { data } = await http.get(`${apiUrl}${path}`, { params: { client_id: clientId, format: 'json', ...params }, timeout: timeoutMs });
       if (data?.headers?.status && data.headers.status !== 'success') {
-        console.error('Jamendo respondió con error:', data.headers.code, data.headers.error_message);
+        console.error('Jamendo respondió con error:', sanitizeForLog(data.headers.code, 20), sanitizeForLog(data.headers.error_message));
         throw new AppError(502, 'El catálogo de música respondió con un error.');
       }
       return Array.isArray(data?.results) ? data.results : [];
