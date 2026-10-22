@@ -43,7 +43,7 @@ const run = (err) => {
 test('un error inesperado responde 500 genérico y se registra con stack', () => {
   const res = run(new Error('boom'));
   assert.equal(res.statusCode, 500);
-  assert.deepEqual(res.body, { error: 'Error interno del servidor' });
+  assert.deepEqual(res.body, { error: 'Error interno del servidor', code: 'internal' });
   assert.equal(logs.error[0].status, 500);
   assert.equal(logs.error[0].where, 'POST /api/public/venues/abc/requests');
   assert.equal(logs.error[0].err, 'boom');
@@ -102,5 +102,14 @@ test('limpia saltos de línea y caracteres de control antes de registrar', () =>
 test('un AppError conserva estado, mensaje y extra', () => {
   const res = run(new AppError(503, 'No disponible', { retryAfter: 5 }));
   assert.equal(res.statusCode, 503);
-  assert.deepEqual(res.body, { error: 'No disponible', retryAfter: 5 });
+  assert.deepEqual(res.body, { error: 'No disponible', code: 'unavailable', retryAfter: 5 });
+});
+
+test('cada error trae un código estable y el de extra tiene prioridad', () => {
+  assert.equal(run(new AppError(404, 'No existe')).body.code, 'not_found');
+  assert.equal(run(new AppError(429, 'Espera')).body.code, 'rate_limited');
+  assert.equal(run(new AppError(409, 'Otra consola', { code: 'console_taken' })).body.code, 'console_taken');
+  assert.equal(run(Object.assign(new SyntaxError('x'), { type: 'entity.too.large' })).body.code, 'payload_too_large');
+  assert.equal(run(new AppError(418, 'Tetera')).body.code, 'error');
+  assert.equal(run(new AppError(507, 'Sin espacio')).body.code, 'internal');
 });

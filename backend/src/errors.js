@@ -6,7 +6,7 @@ export class AppError extends Error {
     this.extra = extra;
   }
 }
-export const notFound = (_req, res) => res.status(404).json({ error: 'Recurso no encontrado' });
+export const notFound = (_req, res) => res.status(404).json({ error: 'Recurso no encontrado', code: 'not_found' });
 
 // Texto que viene del usuario (ruta, Origin) antes de ir al log: sin saltos de línea ni caracteres de
 // control (evita falsificar líneas del log) y con largo máximo.
@@ -32,6 +32,24 @@ const describe = (err) => {
   return [500, 'Error interno del servidor'];
 };
 
+// Código estable para la máquina según el estado HTTP; el mensaje en español es para las personas.
+// Un AppError puede traer su propio código en extra.code (por ejemplo, console_taken).
+export const ERROR_CODES = {
+  400: 'invalid_input',
+  401: 'unauthorized',
+  403: 'forbidden',
+  404: 'not_found',
+  409: 'conflict',
+  410: 'gone',
+  413: 'payload_too_large',
+  429: 'rate_limited',
+  499: 'cancelled',
+  502: 'upstream_error',
+  503: 'unavailable',
+  504: 'upstream_timeout',
+};
+export const errorCode = (status) => ERROR_CODES[status] ?? (status >= 500 ? 'internal' : 'error');
+
 export const errorHandler = (err, req, res, _next) => {
   const [status, message] = describe(err);
   const where = sanitizeForLog(`${req.method} ${req.baseUrl}${req.path}`);
@@ -40,5 +58,5 @@ export const errorHandler = (err, req, res, _next) => {
     logger.error('Error del servidor', { status, where, name: err?.name || 'Error', err, db: dbFields(err), stack: err?.stack });
   else logger.warn('Petición rechazada', { status, where, reason: sanitizeForLog(message) });
   if (res.headersSent) return res.end();
-  res.status(status).json({ error: message, ...(err instanceof AppError && err.extra ? err.extra : {}) });
+  res.status(status).json({ error: message, code: errorCode(status), ...(err instanceof AppError && err.extra ? err.extra : {}) });
 };
