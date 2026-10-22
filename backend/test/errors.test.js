@@ -4,16 +4,19 @@ import assert from 'node:assert/strict';
 import { z } from 'zod';
 import { AppError, errorHandler, sanitizeForLog } from '../src/errors.js';
 
+// El logger escribe una línea JSON por evento en stderr (warn y error); se captura para revisarla.
 let logs;
-const original = { error: console.error, warn: console.warn };
+const originalWrite = process.stderr.write;
 beforeEach(() => {
   logs = { error: [], warn: [] };
-  console.error = (...a) => logs.error.push(a.join(' '));
-  console.warn = (...a) => logs.warn.push(a.join(' '));
+  process.stderr.write = (line) => {
+    const entry = JSON.parse(line);
+    logs[entry.level].push(entry);
+    return true;
+  };
 });
 afterEach(() => {
-  console.error = original.error;
-  console.warn = original.warn;
+  process.stderr.write = originalWrite;
 });
 
 const run = (err) => {
@@ -41,8 +44,10 @@ test('un error inesperado responde 500 genérico y se registra con stack', () =>
   const res = run(new Error('boom'));
   assert.equal(res.statusCode, 500);
   assert.deepEqual(res.body, { error: 'Error interno del servidor' });
-  assert.match(logs.error[0], /\[500\] POST \/api\/public\/venues\/abc\/requests → Error: boom/);
-  assert.match(logs.error[0], /at /);
+  assert.equal(logs.error[0].status, 500);
+  assert.equal(logs.error[0].where, 'POST /api/public/venues/abc/requests');
+  assert.equal(logs.error[0].err, 'boom');
+  assert.match(logs.error[0].stack, /at /);
 });
 
 test('un error de Postgres registra code y tabla pero no el detail', () => {
@@ -53,8 +58,8 @@ test('un error de Postgres registra code y tabla pero no el detail', () => {
   });
   const res = run(pgError);
   assert.equal(res.statusCode, 500);
-  assert.match(logs.error[0], /code=42P01 table=song_requests/);
-  assert.doesNotMatch(logs.error[0], /ana@correo\.co/);
+  assert.equal(logs.error[0].db, 'code=42P01 table=song_requests');
+  assert.doesNotMatch(JSON.stringify(logs.error[0]), /ana@correo\.co/);
 });
 
 test('un ZodError responde 400 con su mensaje y no registra stack', () => {
@@ -68,7 +73,8 @@ test('un ZodError responde 400 con su mensaje y no registra stack', () => {
   assert.equal(res.statusCode, 400);
   assert.equal(res.body.error, 'Escribe el título.');
   assert.equal(logs.error.length, 0);
-  assert.match(logs.warn[0], /\[400\]/);
+  assert.equal(logs.warn[0].status, 400);
+  assert.equal(logs.warn[0].stack, undefined);
 });
 
 test('JSON inválido responde 400 en español', () => {
@@ -90,7 +96,7 @@ test('limpia saltos de línea y caracteres de control antes de registrar', () =>
     },
   };
   errorHandler(new AppError(404, 'No existe'), { method: 'GET', baseUrl: '', path: '/x\n[200] OK' }, res, () => {});
-  assert.doesNotMatch(logs.warn[0], /\n/);
+  assert.doesNotMatch(logs.warn[0].where, /\n/);
 });
 
 test('un AppError conserva estado, mensaje y extra', () => {

@@ -1,3 +1,4 @@
+import { logger } from './logger.js';
 export class AppError extends Error {
   constructor(status, message, extra = {}) {
     super(message);
@@ -35,8 +36,9 @@ export const errorHandler = (err, req, res, _next) => {
   const [status, message] = describe(err);
   const where = sanitizeForLog(`${req.method} ${req.baseUrl}${req.path}`);
   // Todo 5xx se registra con mensaje y stack; nunca el cuerpo de la petición ni el detail de Postgres.
-  if (status >= 500) console.error(`[${status}] ${where} → ${err?.name || 'Error'}: ${err?.message} ${dbFields(err)}\n${err?.stack || ''}`);
-  else console.warn(`[${status}] ${where} → ${sanitizeForLog(message)}`);
+  if (status >= 500)
+    logger.error('Error del servidor', { status, where, name: err?.name || 'Error', err, db: dbFields(err), stack: err?.stack });
+  else logger.warn('Petición rechazada', { status, where, reason: sanitizeForLog(message) });
   if (res.headersSent) return res.end();
   res.status(status).json({ error: message, ...(err instanceof AppError && err.extra ? err.extra : {}) });
 };
