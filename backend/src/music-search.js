@@ -3,7 +3,8 @@ import { AppError } from './errors.js';
 import { logger } from './logger.js';
 
 // Búsqueda de canciones en iTunes Search API, siempre desde el servidor (el navegador nunca llama a APIs externas).
-const ITUNES_URL = 'https://itunes.apple.com';
+// ITUNES_API_URL solo cambia en pruebas locales (doble de iTunes); config.js valida que sea https o localhost.
+const ITUNES_URL = process.env.ITUNES_API_URL || 'https://itunes.apple.com';
 const TIMEOUT_MS = 5000;
 export const MAX_RESULTS = 10;
 const COUNTRY = process.env.MUSIC_SEARCH_COUNTRY || 'CO';

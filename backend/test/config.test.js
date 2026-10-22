@@ -56,6 +56,7 @@ test('no acepta secretos cortos ni servicios externos por http', () => {
   assert.match(problems({ ...VALID, SUPABASE_JWKS_URL: '', SUPABASE_JWT_SECRET: 'corto' }), /al menos 32 caracteres/);
   assert.match(problems({ ...VALID, JAMENDO_API_URL: 'http://api.jamendo.com/v3.0' }), /https/);
   assert.equal(parseConfig({ ...VALID, JAMENDO_API_URL: 'http://localhost:3997/v3.0' }).jamendoApiUrl, 'http://localhost:3997/v3.0');
+  assert.match(problems({ ...VALID, ITUNES_API_URL: 'http://itunes.apple.com' }), /ITUNES_API_URL: debe ser una URL https/);
   assert.equal(parseConfig({ ...VALID, SUPABASE_JWKS_URL: '', SUPABASE_JWT_SECRET: 'x'.repeat(32) }).supabaseJwtSecret.length, 32);
 });
 

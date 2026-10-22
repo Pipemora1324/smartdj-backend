@@ -55,6 +55,7 @@ const envSchema = z.object({
   JAMENDO_CLIENT_ID: optionalText,
   JAMENDO_API_URL: serviceUrl.optional().default('https://api.jamendo.com/v3.0'),
   JAMENDO_MONTHLY_BUDGET: positiveInt(30000),
+  ITUNES_API_URL: serviceUrl.optional(),
   AUDIUS_API_KEY: optionalText,
 });
 
