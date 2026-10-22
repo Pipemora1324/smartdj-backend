@@ -23,6 +23,7 @@ Primero se hizo el inventario y después se borró. Cómo se buscó cada element
 | `.env.example`: `COOKIE_SECURE`, `PUBLIC_APP_URL`, `SMTP_*` y `MAIL_FROM` | Ningún código los lee. | **Borrar.** |
 | `gateway/nginx.conf`: zona `login_limit` y `location = /api/auth/login` | La ruta ya no existe. | **Borrar.** |
 | CORS con `credentials: true` | Ya no hay cookies: la API usa `Authorization: Bearer`. | **Quitar** (bloque B, CORS estricto). |
+| `checkCompatibility` en `ai-client.js` | Solo lo usaba `POST /:id/analyze`. La evaluación de peticiones usa `streamEvaluation`. | **Borrar del cliente.** El rpc `CheckCompatibility` sigue en el motor y en el contrato, que es compartido. |
 | `POST /compatibility` (HTTP) y `evaluateOverHttp` en `queue.js` | Es el respaldo cuando `AI_GRPC_URL` está vacío. | **Mantener.** |
 | `scripts/grpc-smoke.mjs` | Prueba manual del servidor gRPC, documentada en el README. | **Mantener.** |
 

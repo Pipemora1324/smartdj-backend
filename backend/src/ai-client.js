@@ -58,14 +58,6 @@ export const toAppError = (err) => {
   return new AppError(status, message, { grpcCode: grpc.status[err.code] ?? String(err.code) });
 };
 
-// Evaluación unaria. request usa los nombres del proto (venue_type, current_bpm, ...).
-export const checkCompatibility = async (request, { timeoutMs = config.aiGrpcTimeoutMs } = {}) => {
-  await ensureConnected();
-  return new Promise((resolve, reject) => {
-    getClient().CheckCompatibility(request, { deadline: deadlineIn(timeoutMs) }, (err, result) => (err ? reject(toAppError(err)) : resolve(result)));
-  });
-};
-
 // Evaluación con server streaming: llama a onEvent(evento) por cada etapa y resuelve con el resultado final.
 // Espera a que terminen los onEvent asíncronos (por ejemplo, publicar en Redis) antes de resolver.
 export const streamEvaluation = async (requestId, request, onEvent, { timeoutMs = config.aiGrpcTimeoutMs } = {}) => {

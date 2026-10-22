@@ -32,6 +32,8 @@ before(async () => {
       call.end();
     },
     SuggestNext(call, callback) {
+      if (mode === 'slow') return setTimeout(() => callback(null, {}), 500);
+      if (!call.request.candidates.length) return callback({ code: grpc.status.INVALID_ARGUMENT, details: 'Faltan candidatas.' });
       const [first] = call.request.candidates;
       callback(null, { track_id: first?.id ?? '', score: 80, reason: `Siguiente después de ${call.request.current?.id || 'nada'}.`, transition_at_seconds: 190, crossfade_seconds: 8 });
     },
@@ -46,10 +48,8 @@ before(async () => {
 
 after(() => { client?.closeAiClient(); server?.forceShutdown(); });
 
-test('CheckCompatibility devuelve el resultado del motor', async () => {
-  mode = 'ok';
+test('el cliente usa gRPC cuando AI_GRPC_URL está definido', () => {
   assert.equal(client.grpcEnabled(), true);
-  assert.deepEqual(await client.checkCompatibility(REQUEST), RESULT);
 });
 
 test('StreamEvaluation entrega las etapas en orden y resuelve con el resultado', async () => {
@@ -70,12 +70,12 @@ test('un stream sin RESULT termina con error 502', async () => {
 
 test('el timeout se convierte en error 504', async () => {
   mode = 'slow';
-  await assert.rejects(client.checkCompatibility(REQUEST, { timeoutMs: 100 }), (err) => err.status === 504 && err.extra.grpcCode === 'DEADLINE_EXCEEDED');
+  await assert.rejects(client.suggestNext({ venue_type: 'cafe', candidates: [{ id: 'a' }] }, { timeoutMs: 100 }), (err) => err.status === 504 && err.extra.grpcCode === 'DEADLINE_EXCEEDED');
 });
 
 test('INVALID_ARGUMENT se convierte en error 400', async () => {
   mode = 'ok';
-  await assert.rejects(client.checkCompatibility({ ...REQUEST, requested_bpm: 0 }), (err) => err.status === 400);
+  await assert.rejects(client.suggestNext({ venue_type: 'cafe', candidates: [] }), (err) => err.status === 400 && /Faltan candidatas/.test(err.message));
 });
 
 test('sin servidor responde 503 (UNAVAILABLE)', async () => {
