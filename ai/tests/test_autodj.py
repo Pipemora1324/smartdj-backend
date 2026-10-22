@@ -69,5 +69,22 @@ class TransitionTest(unittest.TestCase):
         self.assertEqual(energy_flow_score(1, 5), 0.1)
 
 
+class RequestHintsTest(unittest.TestCase):
+    def test_lo_pedido_por_el_publico_cambia_la_eleccion(self):
+        candidates = [track('lounge', genre='lounge', energy=3, artist='Ana'), track('salsa', genre='salsa', energy=3, artist='Beto')]
+        sin_pedidos = suggest_next('other', None, candidates)
+        con_pedidos = suggest_next('other', None, candidates, request_genres=['Salsa y Tropical'])
+        self.assertEqual(sin_pedidos['track_id'], 'lounge')
+        self.assertEqual(con_pedidos['track_id'], 'salsa')
+        self.assertIn('pidió el público', con_pedidos['reason'])
+
+    def test_el_artista_pedido_pesa_mas_que_el_genero(self):
+        candidates = [track('a', genre='salsa', artist='Otro'), track('b', genre='lounge', artist='Marc Anthony')]
+        result = suggest_next('other', None, candidates, request_genres=['salsa'], request_artists=['marc anthony'])
+        self.assertEqual(result['track_id'], 'b')
+        self.assertIn('Marc Anthony', result['reason'])
+        self.assertLessEqual(result['score'], 100)
+
+
 if __name__ == '__main__':
     unittest.main()

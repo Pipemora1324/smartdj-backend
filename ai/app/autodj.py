@@ -6,6 +6,9 @@ from app.engine import NEUTRAL, VENUE_PROFILES, bpm_score, family, family_affini
 VENUE_ENERGY = {'restaurant': (2, 3), 'cafe': (2, 3), 'lounge': (2, 3), 'salsa_bar': (3, 4), 'nightclub': (4, 5), 'other': (3, 3)}
 WEIGHTS = {'genre': .35, 'energy': .25, 'flow': .15, 'bpm': .15, 'key': .10}
 REPEATED_ARTIST_PENALTY = .2
+# Lo que pidió el público hace poco orienta la elección: mismo artista o misma familia de género.
+REQUEST_ARTIST_BONUS = .15
+REQUEST_GENRE_BONUS = .12
 MIN_CROSSFADE, MAX_CROSSFADE = 6.0, 12.0
 MIN_TRANSITION = 30.0
 MAX_CANDIDATES = 200
@@ -54,7 +57,18 @@ def transition_point(duration, crossfade):
     return round(max(min(MIN_TRANSITION, duration / 2), duration - crossfade - 1), 1)
 
 
-def score_candidate(venue_type, current, candidate, recent_artists):
+def request_match(candidate, hints):
+    """'artist' si es de un artista pedido, 'genre' si es de una familia de género pedida, None si no se parece."""
+    if not hints:
+        return None
+    if normalize(candidate.get('artist', '')) in hints['artists']:
+        return 'artist'
+    if family(candidate.get('genre', '')) in hints['families']:
+        return 'genre'
+    return None
+
+
+def score_candidate(venue_type, current, candidate, recent_artists, hints=None):
     parts = {
         'genre': genre_fit(venue_type, current.get('genre', ''), candidate.get('genre', '')),
         'energy': energy_target_score(venue_type, candidate.get('energy', 0)),
@@ -66,7 +80,10 @@ def score_candidate(venue_type, current, candidate, recent_artists):
     repeated = normalize(candidate.get('artist', '')) in recent_artists
     if repeated:
         score -= REPEATED_ARTIST_PENALTY
-    return max(0.0, score), parts, repeated
+    requested = request_match(candidate, hints)
+    score += {'artist': REQUEST_ARTIST_BONUS, 'genre': REQUEST_GENRE_BONUS}.get(requested, 0)
+    parts['requested'] = requested
+    return min(1.0, max(0.0, score)), parts, repeated
 
 
 def describe(current, candidate, parts, repeated):
@@ -84,13 +101,23 @@ def describe(current, candidate, parts, repeated):
         reasons.append(f"tempo parecido ({round(candidate['bpm'])} BPM)")
     if parts['key'] >= 0.85 and current.get('key') and candidate.get('key'):
         reasons.append('tonalidad compatible')
+    if parts.get('requested') == 'artist':
+        reasons.append(f"el público pidió a {candidate.get('artist')}")
+    elif parts.get('requested') == 'genre':
+        reasons.append(f"se parece a lo que pidió el público ({candidate.get('genre')})")
     if repeated:
         reasons.append('el artista sonó hace poco')
     text = ', '.join(reasons) if reasons else 'la mejor opción disponible para el ambiente del local'
     return text[0].upper() + text[1:] + '.'
 
 
-def suggest_next(venue_type, current, candidates, recent_ids=(), recent_artists=()):
+def request_hints(request_genres=(), request_artists=()):
+    families = {family(g) for g in request_genres if g} - {'other'}
+    artists = {normalize(a) for a in request_artists if a}
+    return {'families': families, 'artists': artists} if families or artists else None
+
+
+def suggest_next(venue_type, current, candidates, recent_ids=(), recent_artists=(), request_genres=(), request_artists=()):
     """Devuelve la mejor candidata con puntaje (0-100), razón, punto de transición y crossfade, o None si no hay.
     No repite pistas recientes; si todas son recientes, repite antes que dejar la emisora en silencio."""
     current = current or {}
@@ -101,9 +128,10 @@ def suggest_next(venue_type, current, candidates, recent_ids=(), recent_artists=
         pool = [c for c in candidates if c.get('id') and c['id'] != current.get('id')]
     if not pool:
         return None
+    hints = request_hints(request_genres, request_artists)
     best = None
     for candidate in pool:
-        score, parts, repeated = score_candidate(venue_type, current, candidate, artists)
+        score, parts, repeated = score_candidate(venue_type, current, candidate, artists, hints)
         if best is None or score > best[0]:
             best = (score, candidate, parts, repeated)
     score, chosen, parts, repeated = best
