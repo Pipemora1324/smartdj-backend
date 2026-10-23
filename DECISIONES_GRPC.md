@@ -2,9 +2,17 @@
 
 Registro de las decisiones tomadas al pasar la comunicación backend ↔ motor de IA de HTTP/JSON a gRPC con streaming. Fecha: 2026-10-20.
 
+> **Estado al cierre (2026-10-23):**
+> - El contenedor único está en producción.
+> - El backend usa `StreamEvaluation`, para las peticiones, y `SuggestNext`, para el AutoDJ. `CheckCompatibility` sigue en el contrato y en el motor, pero el backend ya no lo llama: la ruta `/analyze` se eliminó.
+> - También se quitaron librosa y ffmpeg, y la imagen combinada bajó de 1,19 GB a ~510 MB.
+> - Los SSE comparten una sola suscripción de Redis por proceso.
+> - Los números de carga actuales están en [CARGA.md](CARGA.md).
+> - Lo que sigue es el registro de la decisión, corregido donde dejó de ser cierto.
+
 ## Resumen
 
-- El backend (Node) habla con el motor (Python) por **gRPC**: `CheckCompatibility` (unario) y `StreamEvaluation` (server streaming).
+- El backend (Node) habla con el motor (Python) por **gRPC**: `StreamEvaluation` (server streaming) y `SuggestNext` (unario, AutoDJ). `CheckCompatibility` (unario) sigue en el contrato, sin uso en el backend.
 - El navegador **sigue usando REST**: recibe el estado en vivo de su petición por **SSE** (`EventSource`) o, si falla, por **polling**.
 - Todo está implementado y probado **en local con Docker Compose**.
 - En el plan gratis, Render no puede llevar gRPC entre **dos** servicios (ver [Render](#render-se-puede-usar-grpc-en-el-plan-gratis)).
@@ -21,14 +29,14 @@ Registro de las decisiones tomadas al pasar la comunicación backend ↔ motor d
 ┌──────────────────── Servicio web smart-dj-platform (Render, Free, 512 MB) ────────────────────┐
 │  start-combined.sh (PID 1)                                                                    │
 │   ├─ python -m app.serve   motor de IA:  gRPC 127.0.0.1:50051  +  HTTP 127.0.0.1:8000         │
-│   │                          ▲ StreamEvaluation / CheckCompatibility (gRPC, sin TLS)          │
+│   │                          ▲ StreamEvaluation / SuggestNext (gRPC, sin TLS)                 │
 │   └─ node src/server.js    backend:      $PORT (público, lo usa el navegador por REST y SSE)  │
 └───────────────────────────────────────────────────────────────────────────────────────────────┘
           │ Postgres (Supabase) · Redis (Upstash): igual que hoy, por las variables del servicio
 ```
 
 - **Archivos:** `Dockerfile.combined` y `start-combined.sh` en la raíz del repo, más un `.dockerignore` que deja fuera `.env` y `node_modules`. `backend/Dockerfile` y `ai/Dockerfile` **no cambian**: el despliegue actual con Root Directory `backend/` sigue funcionando igual.
-- **Imagen:** dos etapas. Se usa `python:3.12-slim-bookworm` con el binario de Node 22 copiado desde `node:22-bookworm-slim`; los dos parten de Debian bookworm, así que los módulos nativos (argon2) son compatibles. Las dependencias de npm se instalan en una etapa aparte.
+- **Imagen:** dos etapas. Se usa `python:3.12-slim-bookworm` con el binario de Node 22 copiado desde `node:22-bookworm-slim`; los dos parten de Debian bookworm, así que cualquier módulo nativo de npm sería compatible (hoy no hay ninguno: argon2 se quitó con la auth propia). Las dependencias de npm se instalan en una etapa aparte.
 - **Variables que trae la imagen:**
 
   | Variable | Valor |
@@ -39,7 +47,6 @@ Registro de las decisiones tomadas al pasar la comunicación backend ↔ motor d
   | `AI_GRPC_URL` | 127.0.0.1:50051 |
   | `AI_GRPC_TLS` | false |
   | `AI_SERVICE_URL` | http://127.0.0.1:8000 |
-  | `AI_ENABLE_ANALYZE` | false |
 
   Las de Render tienen prioridad.
 - **Arranque (`start-combined.sh`):**
@@ -58,18 +65,16 @@ Registro de las decisiones tomadas al pasar la comunicación backend ↔ motor d
 | Después de la carga | 102–104 MiB |
 | Reinicios por falta de memoria (OOM) | ninguno |
 | Por proceso (RSS, incluye páginas compartidas) | Python ≈ 88 MB, Node ≈ 97 MB, bash ≈ 3 MB |
-| `/analyze` (librosa: `tempo` + `chroma_cqt` sobre 30 s de audio), medido aparte | **+400 MB**: el proceso Python sube a 413 MB, con pico de 432 MB |
+| `/analyze` (librosa), medido aparte en su momento | +400 MB. **Ya no existe**: se eliminó en el cierre |
 
 - **Recortes aplicados:**
-  - librosa y numpy se importan **solo dentro de `/analyze`**.
-  - En el contenedor combinado `/analyze` está **apagado** (`AI_ENABLE_ANALYZE=false` → 503) porque no cabe junto al backend en 512 MB. Hoy nadie llama a `/analyze` (ni el backend ni el frontend), y el servicio `smart-dj-ai` separado lo mantiene activo.
+  - `/analyze`, librosa y ffmpeg se eliminaron en el cierre: nadie los usaba y no cabían en 512 MB.
   - Imágenes slim y solo el binario de Node, sin npm en la imagen final.
-- Tamaño de la imagen: 1,19 GB, casi todo por librosa/scipy en `requirements.txt`. No afecta la RAM.
+- Tamaño de la imagen: ~510 MB (antes 1,19 GB por librosa/scipy). La prueba de carga con 150 personas llegó a 113 MiB ([CARGA.md](CARGA.md)).
 
 ### Pruebas del contenedor combinado (todas en local)
 - `GET /api/health` → `{"status":"ok"}` en el puerto 10000.
 - `/health` del motor (interno) → `grpc: true`.
-- `/analyze` → 503.
 - `grpc-smoke.mjs` dentro del contenedor contra `127.0.0.1:50051`: unario, streaming e `INVALID_ARGUMENT`.
 - SSE de punta a punta: llegaron las 5 etapas. Con carga, 20 de 20 peticiones con SSE recibieron `result` y todas quedaron evaluadas en Postgres. La conexión 21 en el mismo minuto recibe 429 (rate limit).
 - Fallos:
@@ -85,11 +90,11 @@ Registro de las decisiones tomadas al pasar la comunicación backend ↔ motor d
 2. **Environment:** agrega `AI_GRPC_URL=127.0.0.1:50051` y `AI_GRPC_TLS=false`. La imagen ya los trae por defecto, pero así quedan explícitos en el panel.
    - Las variables actuales (`DATABASE_URL`, `REDIS_URL`, `SUPABASE_URL`, `SUPABASE_JWKS_URL`, `CORS_ORIGIN`, etc.) se quedan igual.
    - Si `AI_SERVICE_URL` apunta al `smart-dj-ai` separado, puedes dejarla: con `AI_GRPC_URL` definido no se usa.
-3. **Save Changes** y **Manual Deploy → Deploy latest commit**. El primer build tarda más por librosa.
+3. **Save Changes** y **Manual Deploy → Deploy latest commit**.
 4. En los logs deben aparecer, en orden:
    - `[combined] gRPC listo en 127.0.0.1:50051`
    - `[combined] Iniciando el backend`
-   - `API listening on 10000`
+   - `{"level":"info",...,"msg":"API escuchando","port":10000}` (los registros ahora son JSON)
 5. Comprueba que `GET https://smart-dj-platform.onrender.com/api/health` responde `{"status":"ok"}`. Después envía una petición desde el link público de un local: el estado debe avanzar por etapas.
 6. El servicio `smart-dj-ai` separado queda sin uso por el backend y se puede pausar después. No es necesario tocarlo.
 
@@ -171,11 +176,11 @@ Navegador ──REST──▶ Backend (Express) ──BullMQ──▶ Worker
   - Envía un latido cada 15 s y dura como máximo 2 min.
   - Lleva `X-Accel-Buffering: no` para que nginx no lo retenga.
 - **Por qué SSE y no WebSockets:** el flujo es unidireccional (servidor → navegador), SSE es HTTP normal (pasa por CORS, nginx, Render y Vercel sin configuración extra) y `EventSource` reconecta solo.
-- **Seguridad:** el id es un UUID que solo conoce quien hizo la petición. No se expone el nombre del invitado. Rate limit de 120 consultas/min de polling y 20 conexiones SSE/min por IP.
-- **Costo:** cada conexión SSE abierta usa una conexión extra a Redis (`redis.duplicate()`) durante unos segundos. Con Upstash gratis hay un límite de conexiones; si el tráfico crece, conviene un único suscriptor compartido.
+- **Seguridad:** el id es un UUID que solo conoce quien hizo la petición. No se expone el nombre del invitado. Límites de 120 consultas/min de polling y 20 conexiones SSE/min **por cliente**, con un tope por IP (ver [CARGA.md](CARGA.md)).
+- **Costo:** al principio cada SSE abría su propia conexión a Redis (`redis.duplicate()`). En el cierre se cambió a un único suscriptor compartido por proceso (`live-hub.js`, `PSUBSCRIBE request-events:*`), con una prueba de integración que lo verifica.
 
 ### 8. Otros cambios
-- `POST /api/venues/:id/analyze` ahora usa `CheckCompatibility`. Corrige de paso un bug: enviaba los campos en camelCase al motor, que espera snake_case, y siempre fallaba con 422.
+- `POST /api/venues/:id/analyze` usó `CheckCompatibility` (y corrigió un bug de camelCase). La ruta se eliminó en el cierre porque el frontend ya no la usaba.
 - `backend/Dockerfile` y `ai/Dockerfile` copian `proto/`. La imagen del motor arranca con `python -m app.serve`.
 
 ## Render: ¿se puede usar gRPC en el plan gratis?
@@ -188,7 +193,7 @@ Navegador ──REST──▶ Backend (Express) ──BullMQ──▶ Worker
 
 Fuentes: [Private Network](https://render.com/docs/private-network) · [Web Services](https://render.com/docs/web-services) · [Deploy for Free](https://render.com/docs/free) · [Deploy Temporal](https://render.com/docs/deploy-temporal)
 
-Por eso, como se pidió, **no se cambió el despliegue**: en Render se sigue usando HTTP hasta que se elija una de las alternativas.
+Por eso, en ese momento no se cambió el despliegue. Después se eligió el [contenedor único](#contenedor-único-en-render-gratis-decisión-vigente), que es lo que corre hoy.
 
 ## Cómo desplegar gRPC en la nube (recomendado)
 
@@ -227,11 +232,11 @@ Cloud Run sí soporta gRPC con streaming del servidor si se activa HTTP/2 de pun
 4. En esta opción, la API HTTP del motor (`/compatibility`) no queda expuesta, porque Cloud Run publica un solo puerto.
 
 ### Opción C: mantener HTTP en producción
-Es el estado actual. gRPC queda demostrado en local con Docker Compose y con las pruebas automáticas. Es válido si el profesor acepta la demo local, pero no cumple "desplegado en la nube".
+Fue el estado inicial, antes del contenedor único. Ya no aplica.
 
 ## Pruebas realizadas (todas en local, sin producción ni el Supabase real)
-- **Python:** `python -m unittest discover -s tests` (en `ai/`). 3 pruebas: unario igual a `engine`, orden de las etapas del stream, `INVALID_ARGUMENT`.
-- **Node:** `npm test` (en `backend/`). 7 pruebas: unario, stream, stream sin `RESULT`, deadline, `INVALID_ARGUMENT`, `UNAVAILABLE`, sincronía del proto.
+- **Python:** pruebas del servidor gRPC en `ai/tests` (unario igual a `engine`, orden de las etapas del stream, `INVALID_ARGUMENT`, `SuggestNext`). Hoy corren dentro de `npm test` del backend, en la imagen del motor.
+- **Node:** pruebas del cliente (`backend/test/ai-client.test.js`): stream, stream sin `RESULT`, deadline, `INVALID_ARGUMENT`, `UNAVAILABLE`, `SuggestNext` y sincronía del proto. Las pruebas de integración usan un motor gRPC simulado.
 - **Script manual:** `node backend/scripts/grpc-smoke.mjs localhost:50051`, que prueba el unario, el streaming y un error esperado.
 - **Docker Compose de punta a punta:** `POST` de una petición pública → BullMQ → stream gRPC → Redis → SSE. Llegaron las 5 etapas en vivo, y el polling y la base de datos coinciden.
 - **Motor apagado:** 3 reintentos y estado `failed` en el SSE a los ~15 s. Al volver el motor, el cliente se reconecta solo.
