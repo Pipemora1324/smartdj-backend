@@ -11,11 +11,17 @@ const server = createApp().listen(config.port, () => {
   checkSchema().catch((err) => logger.error('Falló la verificación del esquema', { err: err }));
   checkAiConnection().catch((err) => logger.error('Falló el diagnóstico del motor', { err: err }));
 });
+// Apagado ordenado (Render manda SIGTERM al desplegar). Las suscripciones de los SSE mantendrían vivo el proceso,
+// así que al terminar se sale explícitamente; si algo se cuelga, se sale igual a los SHUTDOWN_MS.
+const SHUTDOWN_MS = 10000;
 const close = async () => {
+  setTimeout(() => process.exit(0), SHUTDOWN_MS).unref();
   server.close();
+  server.closeAllConnections();
   await closeQueue().catch(() => {});
-  await pool.end();
+  await pool.end().catch(() => {});
   redis.disconnect();
+  process.exit(0);
 };
 process.on('SIGTERM', close);
 process.on('SIGINT', close);
