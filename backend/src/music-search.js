@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { AppError } from './errors.js';
 import { logger } from './logger.js';
+import { createMemo } from './memo.js';
 
 // Búsqueda de canciones en iTunes Search API, siempre desde el servidor (el navegador nunca llama a APIs externas).
 // ITUNES_API_URL solo cambia en pruebas locales (doble de iTunes); config.js valida que sea https o localhost.
@@ -58,6 +59,11 @@ export const searchTracks = async (term) =>
     .filter(Boolean)
     .slice(0, MAX_RESULTS);
 
-// Vuelve a pedir la canción por id para no confiar en los datos que manda el navegador.
-export const lookupTrack = async (trackId) =>
-  toTrack((await callItunes('/lookup', { id: trackId, entity: 'song' })).find((r) => String(r.trackId) === String(trackId)));
+// Vuelve a pedir la canción por id para no confiar en los datos que manda el navegador. Se recuerda 10 minutos:
+// en una demo mucha gente pide las mismas canciones y cada consulta a iTunes tarda cientos de milisegundos.
+const LOOKUP_CACHE_MS = 10 * 60 * 1000;
+const lookups = createMemo({ ttlMs: LOOKUP_CACHE_MS });
+export const lookupTrack = (trackId) =>
+  lookups.get(String(trackId), async () =>
+    toTrack((await callItunes('/lookup', { id: trackId, entity: 'song' })).find((r) => String(r.trackId) === String(trackId))),
+  );
