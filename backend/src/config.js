@@ -3,18 +3,15 @@ import { z } from 'zod';
 
 // Validación de la configuración al arrancar: si falta algo o tiene un formato inválido, el servidor no arranca
 // y el error lista TODOS los problemas en español. Los valores por defecto son solo los seguros (puertos, tiempos).
-const urlWith = (protocols, label) =>
+// Una variable definida pero vacía en el panel del hosting cuenta como no definida (usa su valor por defecto).
+const blankToUndefined = (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value);
+// Solo se revisa el esquema: pg e ioredis aceptan contraseñas con caracteres que new URL() rechazaría.
+const urlWith = (schemes, label) =>
   z
     .string({ required_error: 'falta (es obligatoria)' })
     .trim()
     .min(1, 'falta (es obligatoria)')
-    .refine((value) => {
-      try {
-        return protocols.includes(new URL(value).protocol);
-      } catch {
-        return false;
-      }
-    }, `debe ser una URL ${label}`);
+    .regex(new RegExp(`^(${schemes.join('|')})://\\S+$`, 'i'), `debe ser una URL ${label}`);
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', 'host.docker.internal']);
 // https en producción; http solo para servicios locales (pruebas con dobles de Jamendo o del motor).
 const serviceUrl = z
@@ -29,34 +26,40 @@ const serviceUrl = z
     }
   }, 'debe ser una URL https (http solo para localhost)');
 const positiveInt = (fallback) =>
-  z.coerce
-    .number({ invalid_type_error: 'debe ser un número' })
-    .int('debe ser un entero')
-    .positive('debe ser mayor que 0')
-    .default(fallback);
+  z.preprocess(
+    blankToUndefined,
+    z.coerce
+      .number({ invalid_type_error: 'debe ser un número' })
+      .int('debe ser un entero')
+      .positive('debe ser mayor que 0')
+      .default(fallback),
+  );
 const optionalText = z.string().trim().optional().default('');
 
 const envSchema = z.object({
   PORT: positiveInt(3000).refine((n) => n <= 65535, 'debe ser un puerto válido'),
-  DATABASE_URL: urlWith(['postgres:', 'postgresql:'], 'de Postgres (postgres:// o postgresql://)'),
+  DATABASE_URL: urlWith(['postgres', 'postgresql'], 'de Postgres (postgres:// o postgresql://)'),
   DATABASE_POOL_MAX: positiveInt(10).refine((n) => n <= 50, 'debe ser como mucho 50'),
-  REDIS_URL: urlWith(['redis:', 'rediss:'], 'de Redis (redis:// o rediss://)'),
-  AI_SERVICE_URL: urlWith(['http:', 'https:'], 'http(s) del motor'),
-  SUPABASE_URL: urlWith(['http:', 'https:'], 'http(s) del proyecto de Supabase'),
+  REDIS_URL: urlWith(['redis', 'rediss'], 'de Redis (redis:// o rediss://)'),
+  AI_SERVICE_URL: urlWith(['http', 'https'], 'http(s) del motor'),
+  SUPABASE_URL: urlWith(['http', 'https'], 'http(s) del proyecto de Supabase'),
   SUPABASE_JWKS_URL: optionalText,
   SUPABASE_JWT_SECRET: optionalText.refine((v) => !v || v.length >= 32, 'debe tener al menos 32 caracteres'),
   CORS_ORIGIN: optionalText,
   AI_GRPC_URL: optionalText.refine((v) => !v || /^[\w.-]+:\d{1,5}$/.test(v), 'debe tener el formato host:puerto'),
-  AI_GRPC_TLS: z
-    .enum(['true', 'false', ''], { errorMap: () => ({ message: 'debe ser true o false' }) })
-    .optional()
-    .default('false'),
+  AI_GRPC_TLS: z.preprocess(
+    (value) => (typeof value === 'string' ? value.trim().toLowerCase() : value),
+    z
+      .enum(['true', 'false', ''], { errorMap: () => ({ message: 'debe ser true o false' }) })
+      .optional()
+      .default('false'),
+  ),
   AI_GRPC_TIMEOUT_MS: positiveInt(10000),
   AI_GRPC_CONNECT_TIMEOUT_MS: positiveInt(3000),
   JAMENDO_CLIENT_ID: optionalText,
-  JAMENDO_API_URL: serviceUrl.optional().default('https://api.jamendo.com/v3.0'),
+  JAMENDO_API_URL: z.preprocess(blankToUndefined, serviceUrl.optional().default('https://api.jamendo.com/v3.0')),
   JAMENDO_MONTHLY_BUDGET: positiveInt(30000),
-  ITUNES_API_URL: serviceUrl.optional(),
+  ITUNES_API_URL: z.preprocess(blankToUndefined, serviceUrl.optional()),
   AUDIUS_API_KEY: optionalText,
 });
 
@@ -110,10 +113,11 @@ export const parseConfig = (env) => {
   }
   const e = result.data;
   const redisUrl = (() => {
-    const parsed = new URL(e.REDIS_URL);
+    // Host: lo que sigue a la última @ (la contraseña puede tenerla) o, sin credenciales, a ://.
+    const host = /^[a-z]+:\/\/(?:.*@)?([^:/?#@]+)/i.exec(e.REDIS_URL)?.[1] ?? '';
     // Upstash habilita TLS. Corrige URLs copiadas como redis:// para que ioredis
     // conecte de forma segura sin tener que exponer credenciales en el código.
-    if (parsed.hostname.endsWith('.upstash.io') && parsed.protocol === 'redis:') {
+    if (host.endsWith('.upstash.io') && /^redis:/i.test(e.REDIS_URL)) {
       return e.REDIS_URL.replace(/^redis:\/\//i, 'rediss://');
     }
     return e.REDIS_URL;

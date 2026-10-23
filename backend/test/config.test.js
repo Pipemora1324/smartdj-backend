@@ -78,6 +78,26 @@ test('acepta orígenes con barra final y la quita', () => {
   assert.ok(parseConfig({ ...VALID, CORS_ORIGIN: 'https://mi-front.vercel.app/' }).origins.includes('https://mi-front.vercel.app'));
 });
 
+test('acepta valores reales del panel del hosting que antes funcionaban', () => {
+  // Variables definidas pero vacías usan su valor por defecto.
+  const blank = parseConfig({ ...VALID, PORT: '', JAMENDO_MONTHLY_BUDGET: ' ', AI_GRPC_TIMEOUT_MS: '', JAMENDO_API_URL: '' });
+  assert.equal(blank.port, 3000);
+  assert.equal(blank.jamendoMonthlyBudget, 30000);
+  assert.equal(blank.aiGrpcTimeoutMs, 10000);
+  assert.equal(blank.jamendoApiUrl, 'https://api.jamendo.com/v3.0');
+  assert.equal(parseConfig({ ...VALID, AI_GRPC_TLS: 'True' }).aiGrpcTls, true);
+  // Contraseñas con caracteres que new URL() rechaza, pero pg e ioredis aceptan.
+  assert.equal(
+    parseConfig({ ...VALID, DATABASE_URL: 'postgresql://u:p#a^[s@db.host:5432/x' }).dbUrl,
+    'postgresql://u:p#a^[s@db.host:5432/x',
+  );
+  assert.equal(
+    parseConfig({ ...VALID, REDIS_URL: 'redis://default:a@b#c@demo.upstash.io:6379' }).redisUrl,
+    'rediss://default:a@b#c@demo.upstash.io:6379',
+  );
+  assert.equal(parseConfig({ ...VALID, REDIS_URL: 'redis://cache.local:6379' }).redisUrl, 'redis://cache.local:6379');
+});
+
 test('el pool de Postgres es de 10 por defecto y se limita a 50', () => {
   assert.equal(parseConfig(VALID).dbPoolMax, 10);
   assert.equal(parseConfig({ ...VALID, DATABASE_POOL_MAX: '15' }).dbPoolMax, 15);
