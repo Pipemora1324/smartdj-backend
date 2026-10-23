@@ -37,6 +37,13 @@ const summary = {
   cpu_max: `${max(rows.map((r) => parseFloat(r[2])))} %`,
   redis_clientes_max: max(rows.map((r) => Number(r[3]))),
   pg_conexiones_max: max(rows.map((r) => Number(r[4]))),
+  por_endpoint: Object.fromEntries(
+    Object.entries(m)
+      .filter(([k]) => k.startsWith('http_req_duration{name:'))
+      .map(([k, v]) => [k.slice('http_req_duration{name:'.length, -1), `p50 ${ms(v.med)} · p95 ${ms(v['p(95)'])} · max ${ms(v.max)}`]),
+  ),
+  checks_publico: m['checks{scenario:publico}'] ? `${Math.round(m['checks{scenario:publico}'].value * 1000) / 10} %` : '-',
+  checks_dj: m['checks{scenario:dj}'] ? `${Math.round(m['checks{scenario:dj}'].value * 1000) / 10} %` : '-',
   sse,
   llamadas_externas: calls,
 };

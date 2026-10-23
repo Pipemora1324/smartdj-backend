@@ -33,9 +33,19 @@ export const options = {
     dj: { executor: 'constant-vus', exec: 'dj', vus: 1, duration: '130s' },
   },
   summaryTrendStats: ['avg', 'med', 'p(95)', 'p(99)', 'max'],
+  // Umbrales de la demo; también hacen que k6 exporte cada endpoint por separado en el resumen.
   thresholds: {
     'http_req_duration{escenario:publico}': ['p(95)<1500'],
-    'checks{escenario:publico}': ['rate>0.95'],
+    'http_req_duration{name:local}': ['p(95)<1000'],
+    'http_req_duration{name:now}': ['p(95)<1000'],
+    'http_req_duration{name:buscar}': ['p(95)<2000'],
+    'http_req_duration{name:pedir}': ['p(95)<2000'],
+    'http_req_duration{name:sse_peticion}': ['p(95)<10000'],
+    'http_req_duration{name:mis_peticiones}': ['p(95)<1000'],
+    'http_req_duration{name:dj_estado}': ['p(95)<2000'],
+    'http_req_duration{name:dj_avanzar}': ['p(95)<3000'],
+    'checks{scenario:publico}': ['rate>0.95'],
+    'checks{scenario:dj}': ['rate>0.95'],
   },
 };
 
