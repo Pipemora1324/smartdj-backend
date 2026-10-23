@@ -181,6 +181,20 @@ test('el SSE del local avisa los cambios de la emisora y no las peticiones de ot
   );
 });
 
+test('la consola del DJ (view=console) sí recibe las peticiones nuevas', async () => {
+  let sent = false;
+  const { events } = await stack.sse(`/api/public/venues/${owner.venue.public_code}/events?view=console`, {
+    onEvent: async (event) => {
+      if (event.event === 'ready' && !sent) {
+        sent = true;
+        await ask({ trackId: VIVIR });
+      }
+    },
+    until: (evs) => evs.some((e) => e.event === 'update'),
+  });
+  assert.deepEqual(events.find((e) => e.event === 'update').data, { type: 'request_created' });
+});
+
 test('una ráfaga de avisos llega agrupada: el primero enseguida y uno al final', async () => {
   let burst = false;
   const { events } = await stack.sse(`/api/public/venues/${owner.venue.public_code}/events`, {

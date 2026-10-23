@@ -117,9 +117,14 @@ router.get('/venues/:code/events', venueStreamLimiter, async (req, res, next) =>
   req.on('close', close);
   try {
     // Un aviso que llegue antes de enviar las cabeceras se descarta: el cliente pide /now al recibir "ready".
-    stop = await listenVenue(venue.id, (event) => {
-      if (res.headersSent && !closed) writeEvent(res, 'update', event);
-    });
+    const view = req.query.view === 'console' ? 'console' : 'public';
+    stop = await listenVenue(
+      venue.id,
+      (event) => {
+        if (res.headersSent && !closed) writeEvent(res, 'update', event);
+      },
+      { view },
+    );
   } catch (err) {
     logger.error('No se pudo iniciar el SSE del local', { err: err });
   }
