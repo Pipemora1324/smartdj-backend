@@ -102,8 +102,8 @@ El audio suena en la consola del dueño. Render gratis no puede transmitir audio
 
 ### AutoDJ
 - **`ensureQueue()`** mantiene al menos 5 pistas en la cola.
-- **Cuándo se ejecuta:** solo con eventos (avanzar, saltar, quitar, cambiar a AutoDJ, petición aceptada y primera carga de la consola). **No hay temporizadores**, para cuidar las cuotas de Jamendo y Upstash.
-- **Candado en Redis** (`SET NX EX 20`): evita dos rellenos a la vez.
+- **Cuándo se ejecuta:** solo con eventos (avanzar, saltar, quitar, cambiar a AutoDJ, petición aceptada y primera carga de la consola). **No hay temporizadores**, para cuidar las cuotas de Jamendo y Upstash. La primera carga no funcionaba (el estado del reproductor aún no existía); se corrigió en el cierre y lo cubre una prueba de integración.
+- **Candado en Redis** (`SET NX EX 30`): evita dos rellenos a la vez.
 - **Candidatas:** primero del caché de pistas. Si hay menos de 20, se hace **una** búsqueda por género en Jamendo, que queda cacheada 24 h.
 - **`SuggestNext`** (gRPC, o `POST /suggest-next` en modo HTTP) recibe:
   - La pista actual, que es la última de la cola.
@@ -127,6 +127,7 @@ El público pide desde iTunes (catálogo comercial), y la emisora solo puede son
 ### Página pública
 - Muestra la pista actual con su crédito y las próximas 5 pistas.
 - Se actualiza por SSE. Hay **un solo** suscriptor de Redis por proceso (`psubscribe venue:*`) que reparte los avisos, y polling cada 10 s como respaldo.
+- Desde el cierre, la página pública solo recibe los cambios de la emisora, agrupados (como mucho uno por local cada 2 s), y `/now` se calcula una vez por local cada 1,5 s. La consola del DJ pide `?view=console` y recibe también las peticiones nuevas. Ver [CARGA.md](CARGA.md).
 - **No reproduce audio:** se quitan los previews de iTunes de la página pública.
 
 ## Peticiones dentro de la emisora (segunda iteración, 2026-10-22)
@@ -190,3 +191,12 @@ El público pide desde iTunes (catálogo comercial), y la emisora solo puede son
 - En modo AutoDJ intercala las peticiones que el motor aceptó (género y energía compatibles), como mucho dos a la vez en la cola y nunca seguidas.
 - Las que el motor no aceptó ("con transición") esperan la decisión del dueño en la consola.
 - Los géneros y artistas de las peticiones recientes viajan a `SuggestNext` (`request_genres`, `request_artists`) y suben el puntaje de las candidatas parecidas.
+
+## Cierre: carga de la demo (2026-10-23)
+
+La prueba de carga local ([CARGA.md](CARGA.md)) simuló 150 personas en el mismo Wi-Fi pidiendo canciones mientras la emisora sonaba. Cambios que afectan a la emisora:
+- **Límites por cliente:** el público se cuenta por IP + identificador anónimo del navegador, con un tope por IP. Antes, el 83 % de las peticiones recibía 429 porque todos compartían la IP del local.
+- **Evaluación en paralelo:** el worker evalúa 6 peticiones a la vez. De a una, las pausas de las etapas del motor (~0,75 s) limitaban a ~80 por minuto.
+- **Avisos agrupados y `/now` compartido:** se evita que cada aviso dispare una consulta de cada celular conectado.
+- **Una sola suscripción de Redis** para los SSE de las peticiones; antes había una conexión por cliente.
+- **Búsquedas deduplicadas:** las búsquedas iguales simultáneas consultan a Jamendo o iTunes una vez, y la canción de iTunes de cada petición se recuerda 10 minutos.
