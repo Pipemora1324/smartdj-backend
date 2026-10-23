@@ -9,6 +9,10 @@ import { publishRequestEvent, toLiveEvent } from './request-status.js';
 import { afterRequestEvaluated } from './autodj.js';
 import { logger } from './logger.js';
 export const requestQueue = new Queue('music-requests', { connection: redis });
+// Evaluaciones a la vez. Cada una pasa ~0,75 s en el stream del motor (pausas entre etapas para animar el estado),
+// así que de a una el tope sería ~80 por minuto; con 6 caben de sobra las ~150 por minuto de una demo (ver CARGA.md).
+// El servidor gRPC del motor tiene 10 hilos: quedan libres para SuggestNext.
+export const EVALUATION_CONCURRENCY = 6;
 export const evaluationJobOptions = {
   attempts: 3,
   backoff: { type: 'exponential', delay: 2000 },
@@ -83,6 +87,7 @@ const worker = new Worker(
   },
   {
     connection: createWorkerConnection(),
+    concurrency: EVALUATION_CONCURRENCY,
     // Con la cola vacía, BullMQ consulta Redis en bucle. drainDelay (segundos) y stalledInterval (ms) más largos
     // bajan de ~20.000 a ~1.700 comandos al día, para no agotar la cuota del plan gratis de Upstash.
     drainDelay: 60,
