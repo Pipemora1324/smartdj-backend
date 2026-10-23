@@ -37,7 +37,10 @@ while kill -0 $K6 2>/dev/null; do
   sleep 3
 done
 wait $SSE
-cp out/summary.json out/sse.json out/fake-calls.json "$RES/" 2>/dev/null
+# Comandos de Redis de toda la corrida (Upstash gratis: 500K al mes).
+docker exec smartdj-load-redis-1 redis-cli info stats | grep total_commands_processed | cut -d: -f2 | tr -dc '0-9' > out/redis-commands.txt
+docker exec smartdj-load-redis-1 redis-cli info commandstats > out/redis-commandstats.txt
+cp out/summary.json out/sse.json out/fake-calls.json out/redis-commands.txt out/redis-commandstats.txt "$RES/" 2>/dev/null
 compose logs api > "$RES/api.log" 2>&1
 [ "${KEEP:-0}" = 1 ] || compose down -v --remove-orphans >/dev/null 2>&1
 node summarize.mjs "$RES"

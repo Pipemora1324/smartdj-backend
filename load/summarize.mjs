@@ -46,6 +46,13 @@ const summary = {
   checks_dj: m['checks{scenario:dj}'] ? `${Math.round(m['checks{scenario:dj}'].value * 1000) / 10} %` : '-',
   sse,
   llamadas_externas: calls,
+  redis_comandos: (() => {
+    try {
+      return Number(readFileSync(join(dir, 'redis-commands.txt'), 'utf8').trim());
+    } catch {
+      return null;
+    }
+  })(),
 };
 writeFileSync(join(dir, 'resumen.json'), JSON.stringify(summary, null, 2));
 console.log(JSON.stringify(summary, null, 2));
