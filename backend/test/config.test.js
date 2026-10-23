@@ -77,3 +77,9 @@ test('suma los orígenes de CORS_ORIGIN a los conocidos sin repetir', () => {
 test('acepta orígenes con barra final y la quita', () => {
   assert.ok(parseConfig({ ...VALID, CORS_ORIGIN: 'https://mi-front.vercel.app/' }).origins.includes('https://mi-front.vercel.app'));
 });
+
+test('el pool de Postgres es de 10 por defecto y se limita a 50', () => {
+  assert.equal(parseConfig(VALID).dbPoolMax, 10);
+  assert.equal(parseConfig({ ...VALID, DATABASE_POOL_MAX: '15' }).dbPoolMax, 15);
+  assert.match(problems({ ...VALID, DATABASE_POOL_MAX: '500' }), /DATABASE_POOL_MAX: debe ser como mucho 50/);
+});

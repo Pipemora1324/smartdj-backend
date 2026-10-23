@@ -39,6 +39,7 @@ const optionalText = z.string().trim().optional().default('');
 const envSchema = z.object({
   PORT: positiveInt(3000).refine((n) => n <= 65535, 'debe ser un puerto válido'),
   DATABASE_URL: urlWith(['postgres:', 'postgresql:'], 'de Postgres (postgres:// o postgresql://)'),
+  DATABASE_POOL_MAX: positiveInt(10).refine((n) => n <= 50, 'debe ser como mucho 50'),
   REDIS_URL: urlWith(['redis:', 'rediss:'], 'de Redis (redis:// o rediss://)'),
   AI_SERVICE_URL: urlWith(['http:', 'https:'], 'http(s) del motor'),
   SUPABASE_URL: urlWith(['http:', 'https:'], 'http(s) del proyecto de Supabase'),
@@ -122,6 +123,8 @@ export const parseConfig = (env) => {
   return {
     port: e.PORT,
     dbUrl: e.DATABASE_URL,
+    // Conexiones del pool de Postgres. Supabase gratis admite 60 directas y 200 por el pooler: 10 deja margen. Ver CARGA.md.
+    dbPoolMax: e.DATABASE_POOL_MAX,
     redisUrl,
     aiUrl: e.AI_SERVICE_URL,
     origins: [...new Set([...origins, ...knownOrigins])],
