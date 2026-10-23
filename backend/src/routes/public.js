@@ -16,6 +16,7 @@ import { toStationRequest } from '../player-logic.js';
 import { requestIdsSchema } from '../owner-validation.js';
 import { SEARCH_MIN_FULL, mergeSearchResults, toPublicTrack } from '../catalog-logic.js';
 import { logger } from '../logger.js';
+import { createMemo } from '../memo.js';
 // BPM y tonalidad son opcionales: "", null o espacios cuentan como "sin dato".
 const emptyToUndefined = (v) => (v === null || (typeof v === 'string' && v.trim() === '') ? undefined : v);
 const router = Router();
@@ -71,7 +72,10 @@ const nowLimiter = createPublicLimiter(LIMITS.publicRead);
 const SEARCH_CACHE_SECONDS = 600;
 
 // Caché corta en Redis para no repetir la misma búsqueda contra iTunes; si Redis falla, se busca directo.
-const cachedSearch = async (term) => {
+// Las búsquedas iguales que llegan a la vez esperan la misma respuesta de iTunes en lugar de repetirla.
+const itunesInFlight = createMemo();
+const cachedSearch = (term) => itunesInFlight.get(term.toLowerCase(), () => searchItunesCached(term));
+const searchItunesCached = async (term) => {
   const key = `music-search:${term.toLowerCase()}`;
   const cached = await redis.get(key).catch(() => null);
   if (cached) return JSON.parse(cached);
@@ -146,30 +150,37 @@ const stationNow = async (venueId) => {
     queue: snap.queue.map((item) => stationSong(item.track, { source: item.source })),
   };
 };
+// Lo que suena y la cola del local. Toda la página pública lo pide a la vez tras cada aviso: se calcula una vez
+// por local cada NOW_CACHE_MS y las consultas simultáneas comparten el resultado.
+const NOW_CACHE_MS = 1500;
+const nowCache = createMemo({ ttlMs: NOW_CACHE_MS });
+const nowPayload = async (venueId) => {
+  const station = await stationNow(venueId);
+  if (station) return station;
+  const playedOrder = hasColumn('song_requests.played_at')
+    ? 'played_at DESC NULLS LAST, evaluated_at DESC'
+    : 'evaluated_at DESC NULLS LAST, created_at DESC';
+  const queueOrder = hasColumn('song_requests.status_updated_at')
+    ? 'COALESCE(status_updated_at, evaluated_at, created_at)'
+    : 'COALESCE(evaluated_at, created_at)';
+  const [playing, queue] = await Promise.all([
+    query(`SELECT * FROM song_requests WHERE establishment_id=$1 AND status='played' ORDER BY ${playedOrder} LIMIT 1`, [venueId]),
+    query(`SELECT * FROM song_requests WHERE establishment_id=$1 AND status='accepted' ORDER BY ${queueOrder} ASC LIMIT $2`, [
+      venueId,
+      NOW_QUEUE_LIMIT,
+    ]),
+  ]);
+  return {
+    nowPlaying: playing.rows[0]
+      ? { ...publicSong(playing.rows[0]), playedAt: playing.rows[0].played_at ?? playing.rows[0].evaluated_at }
+      : null,
+    queue: queue.rows.map(publicSong),
+  };
+};
 router.get('/venues/:code/now', nowLimiter, async (req, res, next) => {
   try {
     const venue = await findVenue(req.params.code);
-    const station = await stationNow(venue.id);
-    if (station) return res.json(station);
-    const playedOrder = hasColumn('song_requests.played_at')
-      ? 'played_at DESC NULLS LAST, evaluated_at DESC'
-      : 'evaluated_at DESC NULLS LAST, created_at DESC';
-    const queueOrder = hasColumn('song_requests.status_updated_at')
-      ? 'COALESCE(status_updated_at, evaluated_at, created_at)'
-      : 'COALESCE(evaluated_at, created_at)';
-    const [playing, queue] = await Promise.all([
-      query(`SELECT * FROM song_requests WHERE establishment_id=$1 AND status='played' ORDER BY ${playedOrder} LIMIT 1`, [venue.id]),
-      query(`SELECT * FROM song_requests WHERE establishment_id=$1 AND status='accepted' ORDER BY ${queueOrder} ASC LIMIT $2`, [
-        venue.id,
-        NOW_QUEUE_LIMIT,
-      ]),
-    ]);
-    res.json({
-      nowPlaying: playing.rows[0]
-        ? { ...publicSong(playing.rows[0]), playedAt: playing.rows[0].played_at ?? playing.rows[0].evaluated_at }
-        : null,
-      queue: queue.rows.map(publicSong),
-    });
+    res.json(await nowCache.get(venue.id, () => nowPayload(venue.id)));
   } catch (e) {
     next(e);
   }

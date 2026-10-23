@@ -103,3 +103,13 @@ test('el buscador público valida el texto y el código del local', async () => 
   assert.equal((await stack.api('/api/public/venues/no-existe/search?q=hola')).status, 404);
   assert.equal((await stack.api(`/api/public/venues/${'x'.repeat(40)}/search?q=hola`)).status, 404);
 });
+
+test('20 búsquedas iguales a la vez consultan a Jamendo e iTunes una sola vez', async () => {
+  const before = { jamendo: stack.jamendo.state.calls, itunes: stack.itunes.state.calls };
+  const results = await Promise.all(
+    Array.from({ length: 20 }, () => stack.api(`/api/public/venues/${owner.venue.public_code}/search?q=valio`)),
+  );
+  assert.ok(results.every((r) => r.status === 200));
+  assert.equal(stack.jamendo.state.calls - before.jamendo, 1);
+  assert.equal(stack.itunes.state.calls - before.itunes, 1);
+});

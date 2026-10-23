@@ -15,6 +15,7 @@ import {
   uniqueTracks,
 } from './catalog-logic.js';
 import { logger } from './logger.js';
+import { createMemo } from './memo.js';
 
 // Catálogo de la emisora: busca en el proveedor solo si la búsqueda no está en caché (24 h, en la base de datos).
 // Guarda metadatos, nunca audio (términos de Jamendo, ver DECISIONES_DJ.md).
@@ -74,7 +75,15 @@ const loadTracks = async (ids) => {
 };
 
 // Búsqueda con caché. Devuelve filas de track_cache. Si el proveedor falla, usa el caché vencido si existe.
-export const searchCatalog = async ({ provider = 'jamendo', q = '', tags = [], limit = 30, excludeNonCommercial = false }) => {
+// Búsquedas iguales simultáneas (por ejemplo, muchos celulares buscando lo mismo) consultan al proveedor una vez.
+const searchesInFlight = createMemo();
+export const searchCatalog = (options) => {
+  const { provider = 'jamendo', q = '', tags = [], limit = 30, excludeNonCommercial = false } = options;
+  return searchesInFlight.get(`${searchKey(provider, q, tags)}|${limit}|${excludeNonCommercial}`, () =>
+    searchCatalogOnce({ provider, q, tags, limit, excludeNonCommercial }),
+  );
+};
+const searchCatalogOnce = async ({ provider, q, tags, limit, excludeNonCommercial }) => {
   const key = searchKey(provider, q, tags);
   const cached = await query('SELECT track_ids, fetched_at FROM track_search_cache WHERE query_key=$1', [key]);
   const entry = cached.rows[0];
