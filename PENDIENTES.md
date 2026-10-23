@@ -46,7 +46,7 @@ Antes deben estar aplicadas `001` y `002`, de fases anteriores. Mientras falten 
 
 ## 4. SonarCloud: hallazgos que quedan a propósito
 
-- `backend/src/mailer.js:15` ("http inseguro"): falso positivo en `jsonTransport`, de la auth anterior que ya no se usa.
+- ~~`backend/src/mailer.js:15`~~: resuelto en el cierre, el archivo se eliminó con la auth anterior.
 - `smartdj-frontend/scripts/dev-static-server.mjs` (http): servidor solo para desarrollo local.
 - El análisis del frontend en SonarCloud seguirá en rojo hasta que se suba el frontend: el BLOCKER de XSS ya está corregido en local (bloque B).
 
@@ -75,3 +75,17 @@ Antes deben estar aplicadas `001` y `002`, de fases anteriores. Mientras falten 
 - **Cuota de iTunes:** unas 20 consultas por minuto. El buscador público usa iTunes solo si Jamendo devuelve menos de 5 resultados, con caché de 10 minutos en Redis.
 - **Historial de antes de la 008:** las peticiones que sí sonaron antes de esa migración no tienen `mix_history.request_id`, así que la corrección también las devuelve a "aceptada". Afecta solo a datos de prueba.
 
+## 7. Cierre del proyecto (2026-10-23)
+
+- **SQL opcional:** `database/migrations/009_limpieza_opcional.sql` borra las tablas y columnas de la auth propia (`auth_codes`, `password_resets`, `refresh_tokens`, `songs`, `mix_history.song_id`, `users.password_hash`).
+  - **Ejecútala a mano solo tras confirmar** que no hay datos que quieras conservar ahí.
+  - Va en una transacción y se probó dos veces en un Postgres desechable.
+- **Render (opcional):** `DATABASE_POOL_MAX` (10 por defecto). No hay variables obligatorias nuevas. `ITUNES_API_URL` y `JAMENDO_API_URL` no se definen en producción.
+- **Vercel:** nada que cambiar. `.vercelignore` deja fuera `package.json` y las herramientas, así que el sitio sigue publicándose como estático.
+- **Demo:**
+  - Render gratis (0,1 CPU) aguanta 150 personas sin errores pero con latencias de varios segundos ([CARGA.md](CARGA.md)). Para la demo conviene un plan con más CPU o asumir la latencia.
+  - Abre la página unos minutos antes, para despertar el servicio.
+- **Upstash:**
+  - Una demo de 2 minutos con 150 peticiones usa ~34K comandos, un 7 % del cupo mensual gratis.
+  - Si se harán muchas demos, vigila el uso en el panel de Upstash.
+- **IP real detrás de Render:** no se pudo comprobar en local qué IP ve Express (`trust proxy` 1). El límite por cliente separa a las personas igual.
