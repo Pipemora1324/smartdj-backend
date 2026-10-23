@@ -89,3 +89,30 @@ Antes deben estar aplicadas `001` y `002`, de fases anteriores. Mientras falten 
   - Una demo de 2 minutos con 150 peticiones usa ~34K comandos, un 7 % del cupo mensual gratis.
   - Si se harán muchas demos, vigila el uso en el panel de Upstash.
 - **IP real detrás de Render:** no se pudo comprobar en local qué IP ve Express (`trust proxy` 1). El límite por cliente separa a las personas igual.
+
+## 8. Render no publica el backend desde el bloque A del cierre (detectado el 2026-10-23)
+
+**Síntoma:** `/api/health` responde `{"status":"ok"}` después de cada push, pero dos comprobaciones de solo lectura muestran una versión **anterior al cierre**:
+- `POST /api/auth/login` sigue respondiendo **410**; en la versión nueva esa ruta no existe (404).
+- Un 404 responde `{"error":"Recurso no encontrado"}` sin el campo `code`, y CORS sigue enviando `access-control-allow-credentials: true`.
+
+El health responde porque Render conserva la instancia vieja cuando un despliegue no termina o no arranca.
+
+**Lo que se descartó en local:**
+- `Dockerfile.combined` construye bien.
+- El contenedor arranca con `mem_limit 512m`.
+- `npm test` completo pasa: unitarias, motor e integración.
+
+**Qué revisar en Render** (servicio `smart-dj-platform`):
+1. **Events:** busca despliegues *Failed* o *Canceled* y abre el log del build y del deploy.
+2. **Minutos de build:** en el plan gratis son limitados por mes. Las imágenes antiguas con librosa (1,19 GB) pudieron agotarlos; la nueva pesa ~510 MB.
+3. **Auto-Deploy** en *On Commit*. Si no, usa *Manual Deploy → Deploy latest commit*.
+4. **Si el deploy falla al arrancar:** desde el cierre, `config.js` valida las variables y el log lo dice en español ("Configuración inválida; revisa las variables de entorno: …"). Para no frenar el arranque por valores que antes funcionaban:
+   - Las variables vacías usan su valor por defecto.
+   - `AI_GRPC_TLS` acepta mayúsculas.
+   - Las URLs de Postgres y Redis solo se revisan por esquema.
+   - Un origen de CORS inválido se ignora con un aviso.
+
+   Siguen siendo obligatorias: `DATABASE_URL`, `REDIS_URL`, `SUPABASE_URL`, `SUPABASE_JWKS_URL` (o `SUPABASE_JWT_SECRET` de al menos 32 caracteres) y `AI_SERVICE_URL` (la imagen combinada ya la define).
+
+**Compatibilidad mientras tanto:** el frontend ya subido funciona con el backend viejo. La cabecera `X-Client-Id` pasa el CORS y `?client=` / `?view=console` se ignoran. No se rompe nada; solo faltan las mejoras del backend.
