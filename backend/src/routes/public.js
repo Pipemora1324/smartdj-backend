@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { query } from '../db.js';
 import { requestQueue, evaluationJobOptions } from '../queue.js';
 import { AppError } from '../errors.js';
-import { LIMITS, createLimiter } from '../rate-limits.js';
+import { LIMITS, createPublicLimiter } from '../rate-limits.js';
 import { redis } from '../redis.js';
 import { publishRequestEvent } from '../request-status.js';
 import { lookupTrack, searchTracks } from '../music-search.js';
@@ -65,9 +65,9 @@ const searchQuery = z
   .trim()
   .min(2, 'Escribe al menos 2 caracteres.')
   .max(100, 'La búsqueda puede tener hasta 100 caracteres.');
-const requestLimiter = createLimiter(LIMITS.publicRequest);
-const searchLimiter = createLimiter(LIMITS.publicSearch);
-const nowLimiter = createLimiter(LIMITS.publicRead);
+const requestLimiter = createPublicLimiter(LIMITS.publicRequest);
+const searchLimiter = createPublicLimiter(LIMITS.publicSearch);
+const nowLimiter = createPublicLimiter(LIMITS.publicRead);
 const SEARCH_CACHE_SECONDS = 600;
 
 // Caché corta en Redis para no repetir la misma búsqueda contra iTunes; si Redis falla, se busca directo.

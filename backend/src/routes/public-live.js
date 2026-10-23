@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { query } from '../db.js';
 import { AppError } from '../errors.js';
-import { LIMITS, MINUTE_MS, createLimiter } from '../rate-limits.js';
+import { LIMITS, MINUTE_MS, createPublicLimiter } from '../rate-limits.js';
 import { redis } from '../redis.js';
 import { FINAL_STAGES, readRequestStatus, statusChannel } from '../request-status.js';
 import { listenVenue } from '../venue-events.js';
@@ -16,10 +16,10 @@ const router = Router();
 // ---------- Estado en vivo de una petición (polling y SSE) ----------
 // El id es un UUID que solo conoce quien hizo la petición; no se expone el nombre del invitado.
 const requestId = z.string().uuid('El id de la petición no es válido.');
-const statusLimiter = createLimiter(LIMITS.publicRead);
-const streamLimiter = createLimiter(LIMITS.requestStream);
+const statusLimiter = createPublicLimiter(LIMITS.publicRead);
+const streamLimiter = createPublicLimiter(LIMITS.requestStream);
 const SSE_MAX_MS = 2 * MINUTE_MS;
-const venueStreamLimiter = createLimiter(LIMITS.venueStream);
+const venueStreamLimiter = createPublicLimiter(LIMITS.venueStream);
 const VENUE_SSE_MAX_MS = 5 * MINUTE_MS;
 
 const loadRequest = async (id) => {
