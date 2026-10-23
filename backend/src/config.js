@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { z } from 'zod';
+import { logger } from './logger.js';
 
 // Validación de la configuración al arrancar: si falta algo o tiene un formato inválido, el servidor no arranca
 // y el error lista TODOS los problemas en español. Los valores por defecto son solo los seguros (puertos, tiempos).
@@ -85,9 +86,6 @@ const crossIssues = (env) => {
   const jwks = String(env.SUPABASE_JWKS_URL || '').trim();
   if (!jwks && !String(env.SUPABASE_JWT_SECRET || '').trim()) issues.push('SUPABASE_JWKS_URL: falta (o define SUPABASE_JWT_SECRET)');
   if (jwks && !/^https?:\/\//.test(jwks)) issues.push('SUPABASE_JWKS_URL: debe ser una URL http(s)');
-  for (const origin of corsOrigins(env.CORS_ORIGIN)) {
-    if (!isOrigin(origin)) issues.push(`CORS_ORIGIN: "${origin}" no es un origen válido (http(s)://host[:puerto], sin ruta)`);
-  }
   return issues;
 };
 
@@ -123,7 +121,12 @@ export const parseConfig = (env) => {
     return e.REDIS_URL;
   })();
   // Lista de origenes permitidos (separados por coma en CORS_ORIGIN).
-  const origins = corsOrigins(e.CORS_ORIGIN);
+  // Un origen mal escrito no es inseguro (simplemente no coincide con ninguno): se ignora con un aviso en lugar de
+  // impedir el arranque.
+  const origins = corsOrigins(e.CORS_ORIGIN).filter(isOrigin);
+  const warnings = corsOrigins(e.CORS_ORIGIN)
+    .filter((origin) => !isOrigin(origin))
+    .map((origin) => `CORS_ORIGIN: se ignora "${origin}" porque no es un origen válido (http(s)://host[:puerto], sin ruta)`);
   return {
     port: e.PORT,
     dbUrl: e.DATABASE_URL,
@@ -132,6 +135,7 @@ export const parseConfig = (env) => {
     redisUrl,
     aiUrl: e.AI_SERVICE_URL,
     origins: [...new Set([...origins, ...knownOrigins])],
+    warnings,
     supabaseUrl: e.SUPABASE_URL,
     supabaseJwksUrl: e.SUPABASE_JWKS_URL,
     supabaseJwtSecret: e.SUPABASE_JWT_SECRET,
@@ -150,6 +154,7 @@ export const parseConfig = (env) => {
 };
 
 export const config = parseConfig(process.env);
+for (const warning of config.warnings) logger.warn('Configuración', { detail: warning });
 
 // Verdadero si el origen de la peticion esta permitido.
 export const isAllowedOrigin = (origin) => !origin || config.origins.includes(origin);
