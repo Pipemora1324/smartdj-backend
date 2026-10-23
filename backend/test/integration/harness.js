@@ -25,7 +25,7 @@ export const startStack = async () => {
   const { checkSchema } = await import('../../src/schema-check.js');
   const { pool, query } = await import('../../src/db.js');
   const { redis } = await import('../../src/redis.js');
-  const { closeQueue } = await import('../../src/queue.js');
+  const { closeQueue, requestQueue } = await import('../../src/queue.js');
   await checkSchema();
   const server = createApp().listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -54,8 +54,12 @@ export const startStack = async () => {
 
   // Deja la base y Redis vacíos entre archivos de prueba (el esquema queda).
   const reset = async () => {
+    // Trabajos pendientes o en reintento de pruebas anteriores apuntan a filas que se van a borrar.
+    await requestQueue.drain(true);
     await query('TRUNCATE users, track_cache, track_search_cache RESTART IDENTITY CASCADE');
-    await redis.flushdb();
+    // Se borra todo menos la cola de BullMQ: vaciarla con el worker activo reutiliza ids de trabajo y lo confunde.
+    const keys = (await redis.keys('*')).filter((key) => !key.startsWith('bull:'));
+    if (keys.length) await redis.del(...keys);
     jamendo.state.failing = false;
     jamendo.state.searchDown = false;
     engine.state.down = false;
@@ -81,8 +85,51 @@ export const startStack = async () => {
     engine.close();
   };
 
+  // Lee un stream SSE y devuelve sus eventos cuando until(eventos) es verdadero (o al vencer el tiempo).
+  // onEvent permite actuar a mitad del stream, por ejemplo crear una petición al recibir "ready".
+  const sse = async (path, { until, onEvent = () => {}, timeoutMs = 8000 } = {}) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const events = [];
+    try {
+      const res = await fetch(`${base}${path}`, { signal: controller.signal });
+      if (!res.headers.get('content-type')?.startsWith('text/event-stream')) return { status: res.status, events, body: await res.json() };
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let end;
+        while ((end = buffer.indexOf('\n\n')) >= 0) {
+          const fields = Object.fromEntries(
+            buffer
+              .slice(0, end)
+              .split('\n')
+              .filter((line) => line && !line.startsWith(':'))
+              .map((line) => [line.slice(0, line.indexOf(':')), line.slice(line.indexOf(':') + 1).trim()]),
+          );
+          buffer = buffer.slice(end + 2);
+          if (!fields.data) continue;
+          const event = { event: fields.event, data: JSON.parse(fields.data) };
+          events.push(event);
+          await onEvent(event);
+          if (until?.(events)) return { status: res.status, events };
+        }
+      }
+      return { status: res.status, events };
+    } catch (err) {
+      if (controller.signal.aborted) return { status: 0, events };
+      throw err;
+    } finally {
+      clearTimeout(timer);
+      controller.abort();
+    }
+  };
+
   await reset();
-  return { base, api, query, redis, reset, close, createOwnerVenue, supabase, jamendo, itunes, engine };
+  return { base, api, sse, query, redis, reset, close, createOwnerVenue, supabase, jamendo, itunes, engine };
 };
 
 // Espera hasta que check() devuelva algo verdadero (trabajos asíncronos como el worker de BullMQ).

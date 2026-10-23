@@ -138,7 +138,7 @@ export const startEngine = async () => {
     CheckCompatibility: (call, cb) => (state.down ? cb(unavailable) : cb(null, resultFor(call.request))),
     StreamEvaluation(call) {
       if (state.down) return call.destroy(unavailable);
-      const result = resultFor(call.request);
+      const result = resultFor(call.request.compatibility);
       call.write({ request_id: call.request.request_id, stage: 'ANALYZING_GENRE', message: 'Analizando género' });
       call.write({ request_id: call.request.request_id, stage: 'RESULT', message: result.reason, result });
       call.end();
