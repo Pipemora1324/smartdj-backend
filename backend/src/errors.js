@@ -55,7 +55,7 @@ export const errorHandler = (err, req, res, _next) => {
   const where = sanitizeForLog(`${req.method} ${req.baseUrl}${req.path}`);
   // Todo 5xx se registra con mensaje y stack; nunca el cuerpo de la petición ni el detail de Postgres.
   if (status >= 500)
-    logger.error('Error del servidor', { status, where, name: err?.name || 'Error', err, db: dbFields(err), stack: err?.stack });
+    logger.error('Error del servidor', { status, where, errorType: err?.name || 'Error', err, db: dbFields(err), stack: err?.stack });
   else logger.warn('Petición rechazada', { status, where, reason: sanitizeForLog(message) });
   if (res.headersSent) return res.end();
   res.status(status).json({ error: message, code: errorCode(status), ...(err instanceof AppError && err.extra ? err.extra : {}) });
