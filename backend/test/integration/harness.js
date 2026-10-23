@@ -57,6 +57,7 @@ export const startStack = async () => {
     await query('TRUNCATE users, track_cache, track_search_cache RESTART IDENTITY CASCADE');
     await redis.flushdb();
     jamendo.state.failing = false;
+    jamendo.state.searchDown = false;
     engine.state.down = false;
   };
 

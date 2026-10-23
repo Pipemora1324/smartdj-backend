@@ -62,7 +62,8 @@ export const JAMENDO_TRACKS = Array.from({ length: 48 }, (_, i) => ({
 Object.assign(JAMENDO_TRACKS[0], { name: 'Vivir Mi Vida', artist_name: 'Marc Anthony' });
 
 export const startJamendo = async () => {
-  const state = { calls: 0, failing: false };
+  // failing: todo responde 500; searchDown: solo fallan las búsquedas (la radio y la consulta por id siguen).
+  const state = { calls: 0, failing: false, searchDown: false };
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://x');
     state.calls += 1;
@@ -73,6 +74,7 @@ export const startJamendo = async () => {
     if (url.pathname.startsWith('/v3.0/radios/stream')) return ok([{ id: 1, playingnow: { track_id: JAMENDO_TRACKS[5].id } }]);
     if (!url.pathname.startsWith('/v3.0/tracks')) return sendJson(res, 404, {});
     const id = url.searchParams.get('id');
+    if (state.searchDown && !id) return sendJson(res, 500, { error: 'búsqueda caída' });
     const words = (url.searchParams.get('search') || '').toLowerCase().split(/\s+/).filter(Boolean);
     const tags = (url.searchParams.get('fuzzytags') || '').split(/[ +]/).filter(Boolean);
     let list = JAMENDO_TRACKS;
