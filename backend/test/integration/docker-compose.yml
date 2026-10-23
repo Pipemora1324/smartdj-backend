@@ -1,0 +1,24 @@
+# Postgres y Redis efímeros para las pruebas de integración (npm test). Datos en tmpfs: se borran al bajar.
+# Contraseña de prueba, puertos y nombre de proyecto propios para no chocar con el docker-compose del proyecto.
+name: smartdj-integration
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment: { POSTGRES_DB: smartdj, POSTGRES_USER: smartdj, POSTGRES_PASSWORD: test_only_password }
+    ports: ['55432:5432']
+    tmpfs: [/var/lib/postgresql/data]
+    volumes:
+      - ../../../database/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ../../../database/migrations/001_verificacion_por_codigo.sql:/docker-entrypoint-initdb.d/02.sql:ro
+      - ../../../database/migrations/002_supabase_auth.sql:/docker-entrypoint-initdb.d/03.sql:ro
+      - ../../../database/migrations/003_esquema_base.sql:/docker-entrypoint-initdb.d/04.sql:ro
+      - ../../../database/migrations/004_canciones_buscador.sql:/docker-entrypoint-initdb.d/05.sql:ro
+      - ../../../database/migrations/005_panel_dueno.sql:/docker-entrypoint-initdb.d/06.sql:ro
+      - ../../../database/migrations/006_emisora.sql:/docker-entrypoint-initdb.d/07.sql:ro
+      - ../../../database/migrations/007_rls_tablas_existentes.sql:/docker-entrypoint-initdb.d/08.sql:ro
+      - ../../../database/migrations/008_peticiones_emisora.sql:/docker-entrypoint-initdb.d/09.sql:ro
+    healthcheck: { test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U smartdj -d smartdj'], interval: 2s, retries: 30 }
+  redis:
+    image: redis:7-alpine
+    ports: ['56379:6379']
+    healthcheck: { test: ['CMD', 'redis-cli', 'ping'], interval: 2s, retries: 30 }
