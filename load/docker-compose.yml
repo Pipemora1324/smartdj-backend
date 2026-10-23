@@ -1,0 +1,64 @@
+# NUNCA EJECUTAR CONTRA PRODUCCIÓN. Réplica local del despliegue para la prueba de carga (ver CARGA.md):
+# - api: el mismo contenedor combinado de Render (backend + motor gRPC), con 512 MB y LOAD_CPUS CPU (1 por defecto;
+#   Render gratis da 0.1).
+# - postgres con max_connections=60 (el tope de conexiones directas de Supabase Nano) y redis local en lugar de Upstash.
+# - fakes: Supabase, Jamendo e iTunes simulados con latencia; nada sale a internet.
+# Sin .env: todas las variables son de prueba y están aquí.
+name: smartdj-load
+services:
+  postgres:
+    image: postgres:16-alpine
+    command: postgres -c max_connections=60
+    environment: { POSTGRES_DB: smartdj, POSTGRES_USER: smartdj, POSTGRES_PASSWORD: test_only_password }
+    tmpfs: [/var/lib/postgresql/data]
+    volumes:
+      - ../database/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ../database/migrations/001_verificacion_por_codigo.sql:/docker-entrypoint-initdb.d/02.sql:ro
+      - ../database/migrations/002_supabase_auth.sql:/docker-entrypoint-initdb.d/03.sql:ro
+      - ../database/migrations/003_esquema_base.sql:/docker-entrypoint-initdb.d/04.sql:ro
+      - ../database/migrations/004_canciones_buscador.sql:/docker-entrypoint-initdb.d/05.sql:ro
+      - ../database/migrations/005_panel_dueno.sql:/docker-entrypoint-initdb.d/06.sql:ro
+      - ../database/migrations/006_emisora.sql:/docker-entrypoint-initdb.d/07.sql:ro
+      - ../database/migrations/007_rls_tablas_existentes.sql:/docker-entrypoint-initdb.d/08.sql:ro
+      - ../database/migrations/008_peticiones_emisora.sql:/docker-entrypoint-initdb.d/09.sql:ro
+    healthcheck: { test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U smartdj -d smartdj'], interval: 2s, retries: 30 }
+  redis:
+    image: redis:7-alpine
+    healthcheck: { test: ['CMD', 'redis-cli', 'ping'], interval: 2s, retries: 30 }
+  fakes:
+    image: node:22-alpine
+    working_dir: /load
+    command: node fakes-server.mjs
+    environment: { FAKES_HOST: 0.0.0.0, FAKES_LATENCY_MS: '300' }
+    volumes: ['../backend:/backend:ro', './:/load:ro', './out:/out']
+    ports: ['4100-4102:4100-4102']
+  api:
+    build: { context: .., dockerfile: Dockerfile.combined }
+    mem_limit: 512m
+    cpus: ${LOAD_CPUS:-1}
+    environment:
+      DATABASE_URL: postgresql://smartdj:test_only_password@postgres:5432/smartdj
+      REDIS_URL: redis://redis:6379
+      SUPABASE_URL: https://test-ref.supabase.co
+      SUPABASE_JWKS_URL: http://host.docker.internal:4100/jwks.json
+      JAMENDO_CLIENT_ID: test-client
+      JAMENDO_API_URL: http://host.docker.internal:4101/v3.0
+      ITUNES_API_URL: http://host.docker.internal:4102
+      LOG_LEVEL: warn
+    extra_hosts: ['host.docker.internal:host-gateway']
+    ports: ['3500:3000']
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      fakes: { condition: service_started }
+  k6:
+    image: grafana/k6:0.55.0
+    profiles: [tools]
+    volumes: ['./k6:/scripts:ro', './out:/out']
+    environment: { BASE_URL: 'http://api:3000', CLIENT_ID: '${CLIENT_ID:-0}' }
+  sse:
+    image: node:22-alpine
+    profiles: [tools]
+    volumes: ['./:/load:ro', './out:/out']
+    environment: { BASE_URL: 'http://api:3000', SSE_CLIENTS: '100', SSE_SECONDS: '130', CLIENT_ID: '${CLIENT_ID:-0}' }
+    command: node /load/sse-clients.mjs
