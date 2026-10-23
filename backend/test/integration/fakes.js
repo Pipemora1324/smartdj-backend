@@ -11,8 +11,13 @@ import protoLoader from '@grpc/proto-loader';
 export const SUPABASE_URL = 'https://test-ref.supabase.co';
 export const JAMENDO_CLIENT_ID = 'test-client';
 
-const listen = async (server) => {
-  server.listen(0, '127.0.0.1');
+// Por defecto solo en 127.0.0.1 y en un puerto libre. La prueba de carga (load/) los sirve en un contenedor
+// con FAKES_HOST=0.0.0.0, puertos fijos y FAKES_LATENCY_MS para imitar la demora de las APIs reales.
+const HOST = process.env.FAKES_HOST || '127.0.0.1';
+const LATENCY_MS = Number(process.env.FAKES_LATENCY_MS) || 0;
+const delayed = (handler) => (req, res) => (LATENCY_MS ? setTimeout(() => handler(req, res), LATENCY_MS) : handler(req, res));
+const listen = async (server, port = 0) => {
+  server.listen(port, HOST);
   await once(server, 'listening');
   return `http://127.0.0.1:${server.address().port}`;
 };
@@ -22,11 +27,11 @@ const sendJson = (res, status, body) => {
 };
 
 // Supabase: JWKS con una clave EC generada en la prueba y tokens firmados con ella (ES256, como Supabase).
-export const startSupabase = async () => {
+export const startSupabase = async ({ port = 0 } = {}) => {
   const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
   const jwk = { ...publicKey.export({ format: 'jwk' }), kid: 'test-kid', alg: 'ES256', use: 'sig' };
   const server = http.createServer((_req, res) => sendJson(res, 200, { keys: [jwk] }));
-  const base = await listen(server);
+  const base = await listen(server, port);
   const token = ({ sub = randomUUID(), email = `${sub.slice(0, 8)}@prueba.test`, verified = true, expiresIn = '1h', ...extra } = {}) =>
     jwt.sign(
       {
@@ -61,29 +66,31 @@ export const JAMENDO_TRACKS = Array.from({ length: 48 }, (_, i) => ({
 // Una canción conocida para probar que una petición de iTunes encuentra su versión libre.
 Object.assign(JAMENDO_TRACKS[0], { name: 'Vivir Mi Vida', artist_name: 'Marc Anthony' });
 
-export const startJamendo = async () => {
+export const startJamendo = async ({ port = 0 } = {}) => {
   // failing: todo responde 500; searchDown: solo fallan las búsquedas (la radio y la consulta por id siguen).
   const state = { calls: 0, failing: false, searchDown: false };
-  const server = http.createServer((req, res) => {
-    const url = new URL(req.url, 'http://x');
-    state.calls += 1;
-    if (state.failing) return sendJson(res, 500, { error: 'caído' });
-    if (url.searchParams.get('client_id') !== JAMENDO_CLIENT_ID)
-      return sendJson(res, 200, { headers: { status: 'failed', code: 5, error_message: 'client_id inválido' }, results: [] });
-    const ok = (results) => sendJson(res, 200, { headers: { status: 'success', code: 0 }, results });
-    if (url.pathname.startsWith('/v3.0/radios/stream')) return ok([{ id: 1, playingnow: { track_id: JAMENDO_TRACKS[5].id } }]);
-    if (!url.pathname.startsWith('/v3.0/tracks')) return sendJson(res, 404, {});
-    const id = url.searchParams.get('id');
-    if (state.searchDown && !id) return sendJson(res, 500, { error: 'búsqueda caída' });
-    const words = (url.searchParams.get('search') || '').toLowerCase().split(/\s+/).filter(Boolean);
-    const tags = (url.searchParams.get('fuzzytags') || '').split(/[ +]/).filter(Boolean);
-    let list = JAMENDO_TRACKS;
-    if (id) list = list.filter((t) => t.id === id);
-    if (words.length) list = list.filter((t) => words.some((w) => `${t.name} ${t.artist_name}`.toLowerCase().includes(w)));
-    if (tags.length) list = list.filter((t) => tags.includes(t.musicinfo.tags.genres[0]));
-    return ok(list.slice(0, Number(url.searchParams.get('limit') || 10)));
-  });
-  const base = await listen(server);
+  const server = http.createServer(
+    delayed((req, res) => {
+      const url = new URL(req.url, 'http://x');
+      state.calls += 1;
+      if (state.failing) return sendJson(res, 500, { error: 'caído' });
+      if (url.searchParams.get('client_id') !== JAMENDO_CLIENT_ID)
+        return sendJson(res, 200, { headers: { status: 'failed', code: 5, error_message: 'client_id inválido' }, results: [] });
+      const ok = (results) => sendJson(res, 200, { headers: { status: 'success', code: 0 }, results });
+      if (url.pathname.startsWith('/v3.0/radios/stream')) return ok([{ id: 1, playingnow: { track_id: JAMENDO_TRACKS[5].id } }]);
+      if (!url.pathname.startsWith('/v3.0/tracks')) return sendJson(res, 404, {});
+      const id = url.searchParams.get('id');
+      if (state.searchDown && !id) return sendJson(res, 500, { error: 'búsqueda caída' });
+      const words = (url.searchParams.get('search') || '').toLowerCase().split(/\s+/).filter(Boolean);
+      const tags = (url.searchParams.get('fuzzytags') || '').split(/[ +]/).filter(Boolean);
+      let list = JAMENDO_TRACKS;
+      if (id) list = list.filter((t) => t.id === id);
+      if (words.length) list = list.filter((t) => words.some((w) => `${t.name} ${t.artist_name}`.toLowerCase().includes(w)));
+      if (tags.length) list = list.filter((t) => tags.includes(t.musicinfo.tags.genres[0]));
+      return ok(list.slice(0, Number(url.searchParams.get('limit') || 10)));
+    }),
+  );
+  const base = await listen(server, port);
   return { apiUrl: `${base}/v3.0`, state, close: () => server.close() };
 };
 
@@ -101,22 +108,24 @@ export const ITUNES_SONGS = [
   trackTimeMillis: 240000,
 }));
 
-export const startItunes = async () => {
+export const startItunes = async ({ port = 0 } = {}) => {
   const state = { calls: 0 };
-  const server = http.createServer((req, res) => {
-    const url = new URL(req.url, 'http://x');
-    state.calls += 1;
-    if (url.pathname === '/lookup')
-      return sendJson(res, 200, { results: ITUNES_SONGS.filter((s) => String(s.trackId) === url.searchParams.get('id')) });
-    const term = (url.searchParams.get('term') || '').toLowerCase();
-    return sendJson(res, 200, { results: ITUNES_SONGS.filter((s) => `${s.trackName} ${s.artistName}`.toLowerCase().includes(term)) });
-  });
-  const base = await listen(server);
+  const server = http.createServer(
+    delayed((req, res) => {
+      const url = new URL(req.url, 'http://x');
+      state.calls += 1;
+      if (url.pathname === '/lookup')
+        return sendJson(res, 200, { results: ITUNES_SONGS.filter((s) => String(s.trackId) === url.searchParams.get('id')) });
+      const term = (url.searchParams.get('term') || '').toLowerCase();
+      return sendJson(res, 200, { results: ITUNES_SONGS.filter((s) => `${s.trackName} ${s.artistName}`.toLowerCase().includes(term)) });
+    }),
+  );
+  const base = await listen(server, port);
   return { url: base, state, close: () => server.close() };
 };
 
 // Motor de IA por gRPC: acepta toda petición salvo Metal y sugiere la primera candidata. state.down simula una caída.
-export const startEngine = async () => {
+export const startEngine = async ({ port: wanted = 0 } = {}) => {
   const protoPath = fileURLToPath(new URL('../../proto/compatibility.proto', import.meta.url));
   const { CompatibilityService } = grpc.loadPackageDefinition(
     protoLoader.loadSync(protoPath, { keepCase: true, longs: Number, enums: String, defaults: true }),
@@ -157,7 +166,7 @@ export const startEngine = async () => {
     },
   });
   const port = await new Promise((resolve, reject) =>
-    server.bindAsync('127.0.0.1:0', grpc.ServerCredentials.createInsecure(), (err, p) => (err ? reject(err) : resolve(p))),
+    server.bindAsync(`${HOST}:${wanted}`, grpc.ServerCredentials.createInsecure(), (err, p) => (err ? reject(err) : resolve(p))),
   );
   return { url: `127.0.0.1:${port}`, state, close: () => server.forceShutdown() };
 };

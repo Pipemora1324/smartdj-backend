@@ -40,3 +40,7 @@ Thumbs.db
 # Configuracion local
 .claude/settings.json
 .claude/settings.local.json
+
+# Prueba de carga local: datos generados en cada corrida
+load/out/
+load/results/
