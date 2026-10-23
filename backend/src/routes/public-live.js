@@ -3,8 +3,7 @@ import { z } from 'zod';
 import { query } from '../db.js';
 import { AppError } from '../errors.js';
 import { LIMITS, MINUTE_MS, createPublicLimiter } from '../rate-limits.js';
-import { redis } from '../redis.js';
-import { FINAL_STAGES, readRequestStatus, statusChannel } from '../request-status.js';
+import { FINAL_STAGES, listenRequest, readRequestStatus } from '../request-status.js';
 import { listenVenue } from '../venue-events.js';
 import { findVenue } from '../venue-lookup.js';
 import { openEventStream, startHeartbeat, writeEvent } from '../sse.js';
@@ -61,7 +60,7 @@ router.get('/requests/:id/events', streamLimiter, async (req, res, next) => {
     return next(e);
   }
   openEventStream(res);
-  const subscriber = redis.duplicate();
+  let stop = null;
   let closed = false;
   const send = (event) => writeEvent(res, 'status', event);
   const close = () => {
@@ -69,28 +68,25 @@ router.get('/requests/:id/events', streamLimiter, async (req, res, next) => {
     closed = true;
     clearInterval(heartbeat);
     clearTimeout(maxLifetime);
-    subscriber.quit().catch(() => subscriber.disconnect());
+    stop?.();
     res.end();
   };
   const heartbeat = startHeartbeat(res);
   const maxLifetime = setTimeout(close, SSE_MAX_MS);
   req.on('close', close);
-  subscriber.on('message', (_channel, message) => {
-    const event = JSON.parse(message);
-    send(event);
-    if (FINAL_STAGES.has(event.stage)) close();
-  });
-  subscriber.on('error', (err) => {
-    logger.error('Error de Redis en SSE', { err: err });
-    close();
-  });
   try {
     // Primero la suscripción y después la foto actual, para no perder eventos entre ambas.
-    await subscriber.subscribe(statusChannel(row.id));
+    stop = await listenRequest(row.id, (event) => {
+      if (closed) return;
+      send(event);
+      if (FINAL_STAGES.has(event.stage)) close();
+    });
+    if (closed) return stop?.();
+    // Sin cupo de conexiones en vivo se manda la foto y se cierra: la página sigue consultando el estado.
     const snapshot = await currentStatus(row);
     if (closed) return;
     send(snapshot);
-    if (FINAL_STAGES.has(snapshot.stage)) close();
+    if (!stop || FINAL_STAGES.has(snapshot.stage)) close();
   } catch (err) {
     logger.error('No se pudo iniciar el SSE', { err: err });
     close();

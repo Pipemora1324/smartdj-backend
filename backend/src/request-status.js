@@ -1,4 +1,5 @@
 import { redis } from './redis.js';
+import { createLiveHub } from './live-hub.js';
 
 // Estado en vivo de cada petición de canción, alimentado por el stream gRPC del motor.
 // - request-status:<id>  último evento (lo lee el polling), vence en 1 hora.
@@ -27,3 +28,20 @@ export const readRequestStatus = async (requestId) => {
   const value = await redis.get(statusKey(requestId));
   return value ? JSON.parse(value) : null;
 };
+
+// SSE de cada petición: un solo suscriptor de Redis por proceso (psubscribe request-events:*) para todas.
+export const MAX_REQUEST_LISTENERS = 1000;
+const hub = createLiveHub({
+  prefix: statusChannel(''),
+  label: 'el estado de las peticiones',
+  maxListeners: MAX_REQUEST_LISTENERS,
+  parse: (message) => {
+    try {
+      return JSON.parse(message);
+    } catch {
+      return null;
+    }
+  },
+});
+// Registra un oyente de la petición; devuelve la función para quitarlo, o null si se llegó al máximo.
+export const listenRequest = (requestId, listener) => hub.listen(requestId, listener);
