@@ -8,7 +8,6 @@ export const startStack = async () => {
     throw new Error('Faltan TEST_DATABASE_URL y TEST_REDIS_URL: corre las pruebas con npm test (levanta Docker solo).');
   const [supabase, jamendo, itunes, engine] = await Promise.all([startSupabase(), startJamendo(), startItunes(), startEngine()]);
   Object.assign(process.env, {
-    LOG_LEVEL: process.env.TEST_LOG_LEVEL || 'error',
     DATABASE_URL: process.env.TEST_DATABASE_URL,
     REDIS_URL: process.env.TEST_REDIS_URL,
     AI_SERVICE_URL: 'http://127.0.0.1:9',

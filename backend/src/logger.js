@@ -1,8 +1,9 @@
 // Registro estructurado: una línea JSON por evento con nivel, hora, mensaje y contexto.
-// LOG_LEVEL (debug, info, warn, error) define desde qué nivel se escribe; por defecto, info.
+// LOG_LEVEL (debug, info, warn, error o silent) define desde qué nivel se escribe; por defecto, info.
+// silent no escribe nada (lo usan las pruebas de integración, que provocan errores a propósito).
 // Nunca registres datos personales: usa ids, y sanitizeForLog() para el texto que venga del usuario.
 // Por si acaso, las claves de contexto con datos personales o secretos se ocultan siempre.
-export const LEVELS = { debug: 10, info: 20, warn: 30, error: 40 };
+export const LEVELS = { debug: 10, info: 20, warn: 30, error: 40, silent: Infinity };
 const REDACTED = '[oculto]';
 const SENSITIVE_KEY = /email|correo|name|nombre|guest|token|password|secret|authorization|cookie|key/i;
 

@@ -31,6 +31,12 @@ test('respeta el nivel mínimo', () => {
   );
 });
 
+test('silent no escribe ni los errores', () => {
+  const { logger, lines } = capture('silent');
+  logger.error('falla');
+  assert.equal(lines.length, 0);
+});
+
 test('un nivel desconocido usa info', () => {
   const { logger, lines } = capture('ruidoso');
   logger.debug('no');
