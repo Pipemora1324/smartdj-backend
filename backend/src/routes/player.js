@@ -16,7 +16,18 @@ import {
   skipSchema,
   uuidParam,
 } from '../owner-validation.js';
-import { advance, claimConsole, enqueue, pause, play, playerSnapshot, removeFromQueue, reorderQueue, updateSettings } from '../player.js';
+import {
+  advance,
+  claimConsole,
+  enqueue,
+  ensurePlayerState,
+  pause,
+  play,
+  playerSnapshot,
+  removeFromQueue,
+  reorderQueue,
+  updateSettings,
+} from '../player.js';
 import { ownedVenue } from './venues.js';
 import { ensureQueue } from '../autodj.js';
 import { dismissRequest, pendingRequests, queueRequestById } from '../station-requests.js';
@@ -53,7 +64,11 @@ const handle = (fn) => async (req, res, next) => {
 
 router.get(
   '/',
-  handle((req, res) => refillAndReply(req, res)),
+  handle(async (req, res) => {
+    // Sin el estado creado, el AutoDJ no sabría el modo y la primera carga quedaría con la cola vacía.
+    await ensurePlayerState(req.venue.id);
+    await refillAndReply(req, res);
+  }),
 );
 router.post(
   '/claim',

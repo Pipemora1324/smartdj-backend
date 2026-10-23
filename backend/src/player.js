@@ -15,6 +15,8 @@ export const publishPlayerUpdate = (venueId) =>
     .catch((err) => logger.error('No se pudo avisar el cambio del reproductor', { err: err }));
 
 const ensureState = (db, venueId) => db.query('INSERT INTO player_state(establishment_id) VALUES($1) ON CONFLICT DO NOTHING', [venueId]);
+// Crea el estado del reproductor si aún no existe (primera vez que el dueño abre la consola).
+export const ensurePlayerState = (venueId) => ensureState({ query }, venueId);
 const lockState = async (client, venueId) => {
   await ensureState(client, venueId);
   return (await client.query('SELECT * FROM player_state WHERE establishment_id=$1 FOR UPDATE', [venueId])).rows[0];
