@@ -56,7 +56,18 @@ export const startStack = async () => {
   const reset = async () => {
     // Trabajos pendientes o en reintento de pruebas anteriores apuntan a filas que se van a borrar.
     await requestQueue.drain(true);
-    await query('TRUNCATE users, track_cache, track_search_cache RESTART IDENTITY CASCADE');
+    // Una evaluación que sigue en curso (y el AutoDJ que dispara) escribe en las tablas: se espera a que termine
+    // y, si aun así el TRUNCATE choca con ella (deadlock), se reintenta.
+    await waitFor(async () => (await requestQueue.getActiveCount()) === 0, { timeoutMs: 15000 }).catch(() => {});
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        await query('TRUNCATE users, track_cache, track_search_cache RESTART IDENTITY CASCADE');
+        break;
+      } catch (err) {
+        if (err.code !== '40P01' || attempt >= 5) throw err;
+        await new Promise((r) => setTimeout(r, 200 * attempt));
+      }
+    }
     // Se borra todo menos la cola de BullMQ: vaciarla con el worker activo reutiliza ids de trabajo y lo confunde.
     const keys = (await redis.keys('*')).filter((key) => !key.startsWith('bull:'));
     if (keys.length) await redis.del(...keys);
