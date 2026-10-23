@@ -159,20 +159,56 @@ test('en AutoDJ una petición aceptada se intercala sola con su versión libre',
   assert.notEqual(queue[0].source, 'request', 'no salta delante de la pista siguiente');
 });
 
-test('el SSE del local avisa a la página pública cuando llega una petición', async () => {
-  let sent = false;
+test('el SSE del local avisa los cambios de la emisora y no las peticiones de otros', async () => {
+  let acted = false;
   const { events } = await stack.sse(`/api/public/venues/${owner.venue.public_code}/events`, {
     onEvent: async (event) => {
-      if (event.event === 'ready' && !sent) {
-        sent = true;
-        await ask({ trackId: VIVIR });
+      if (event.event === 'ready' && !acted) {
+        acted = true;
+        // Una petición nueva de otra persona no cambia lo que ve este cliente: no debe llegar.
+        await stack.redis.publish(`venue:${owner.venue.id}`, JSON.stringify({ type: 'request_created', requestId: 'x' }));
+        await stack.api(`/api/venues/${owner.venue.id}/player`, { method: 'PATCH', token: owner.token, body: { volume: 50 } });
       }
     },
     until: (evs) => evs.some((e) => e.event === 'update'),
   });
   assert.equal(events[0].event, 'ready');
-  const update = events.find((e) => e.event === 'update');
-  assert.deepEqual(Object.keys(update.data), ['type'], 'solo el tipo de cambio, sin datos de la petición');
+  const updates = events.filter((e) => e.event === 'update');
+  assert.deepEqual(
+    updates.map((e) => e.data),
+    [{ type: 'player_updated' }],
+    'solo el tipo de cambio de la emisora',
+  );
+});
+
+test('una ráfaga de avisos llega agrupada: el primero enseguida y uno al final', async () => {
+  let burst = false;
+  const { events } = await stack.sse(`/api/public/venues/${owner.venue.public_code}/events`, {
+    onEvent: async (event) => {
+      if (event.event === 'ready' && !burst) {
+        burst = true;
+        for (let i = 0; i < 10; i += 1) await stack.redis.publish(`venue:${owner.venue.id}`, JSON.stringify({ type: 'player_updated' }));
+      }
+    },
+    until: (evs) => evs.filter((e) => e.event === 'update').length >= 2,
+    timeoutMs: 5000,
+  });
+  assert.equal(events.filter((e) => e.event === 'update').length, 2);
+});
+
+test('varios SSE de peticiones comparten una sola conexión a Redis', async () => {
+  const clients = async () => (await stack.redis.client('LIST')).trim().split('\n').length;
+  const ids = [];
+  for (let i = 0; i < 6; i += 1) ids.push((await ask({ trackId: METAL })).body.id);
+  // Abiertas a la vez; se cierran solas al llegar el resultado de cada una.
+  const before = await clients();
+  const streams = ids.map((id) =>
+    stack.sse(`/api/public/requests/${id}/events`, { until: (evs) => evs.some((e) => e.data.stage === 'result') }),
+  );
+  const during = await clients();
+  const results = await Promise.all(streams);
+  for (const { events } of results) assert.equal(events.at(-1).data.stage, 'result');
+  assert.ok(during - before <= 1, `abrió ${during - before} conexiones a Redis para 6 SSE`);
 });
 
 test('el límite de peticiones por IP responde 429 en español', async () => {
