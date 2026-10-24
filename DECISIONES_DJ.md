@@ -200,3 +200,57 @@ La prueba de carga local ([CARGA.md](CARGA.md)) simuló 150 personas en el mismo
 - **Avisos agrupados y `/now` compartido:** se evita que cada aviso dispare una consulta de cada celular conectado.
 - **Una sola suscripción de Redis** para los SSE de las peticiones; antes había una conexión por cliente.
 - **Búsquedas deduplicadas:** las búsquedas iguales simultáneas consultan a Jamendo o iTunes una vez, y la canción de iTunes de cada petición se recuerda 10 minutos.
+
+## Peticiones automáticas en AutoDJ (2026-10-24)
+
+**Problema:** en AutoDJ solo entraban solas las peticiones que "encajaban", con un máximo de dos en la cola. Muchas se quedaban en la pestaña Peticiones esperando al dueño y nunca sonaban.
+
+**Decisión:** en AutoDJ, con el interruptor **"Aceptar peticiones automáticamente"** activo (por defecto), toda petición válida entra sola a la cola. La IA decide el **orden** y el **momento**, no si entra. La compatibilidad con la pista actual solo cuenta para el orden y la transición.
+
+### Algoritmo de prioridad (`backend/src/request-priority.js`)
+1. **Orden de llegada:** primero en pedir, primero en sonar.
+2. **Ajuste suave:** se mira una ventana con las N+1 peticiones más antiguas (N = `REQUEST_MAX_DEFERRAL`, 3 por defecto) y se elige la de mejor puntaje:
+   - −1 por cada puesto de llegada.
+   - +1 por cada duplicación de votos (log₂).
+   - +3 por cada clic del dueño en "subir" (−3 en "bajar").
+   - Hasta +1,5 según qué tan suave es la transición con la pista anterior: familia de género y energía.
+
+   Así se evita un choque brusco de género o energía adelantando o atrasando una petición unas posiciones, nunca más allá de la ventana.
+3. **Límite de aplazamiento:**
+   - `passed_count` guarda cuántas peticiones que llegaron después ya sonaron antes que esta.
+   - El plan también cuenta los saltos que él mismo propone.
+   - Una petición que llegó a N suena antes que cualquier otra, así que **ninguna se aplaza más de N turnos** y todas suenan.
+4. **Equilibrio:** si hay más de K peticiones (K = `REQUEST_BALANCE_EVERY`, 4 por defecto), después de cada K seguidas va una pista elegida por la IA. Con pocas suenan seguidas. Sin peticiones, el AutoDJ sigue como siempre.
+5. **La siguiente no se mueve:** mientras algo suena, la primera de la cola queda fija, porque la consola ya puede haberla precargado.
+6. **Pistas de la IA necesarias:** las del equilibrio, las que faltan para el mínimo de 5 y siempre una al final, para que la cola nunca quede vacía. Como máximo 8 llamadas al motor por pasada.
+
+Todo se recalcula solo por eventos (petición evaluada, avanzar, saltar, quitar, subir o bajar, activar el interruptor), nunca con temporizadores.
+
+### Reglas de entrada
+- **Duplicados → votos:**
+  - Si alguien pide una canción que ya está pendiente (misma `song_key` = proveedor:id), la nueva fila apunta a la original (`duplicate_of`) y suma un voto. Un candado por local y canción (`pg_advisory_xact_lock`) evita originales repetidas cuando llegan a la vez.
+  - Si dos peticiones distintas resuelven la misma pista (una de iTunes con su versión completa de Jamendo, por ejemplo), también quedan como voto.
+  - Si la IA ya había puesto esa pista en la cola, ese lugar pasa a ser de la petición.
+- **Justicia por cliente:**
+  - Como máximo `REQUEST_MAX_PENDING_PER_CLIENT` (3) pendientes por navegador, contadas con una huella anónima (sha256) del identificador de cliente + IP.
+  - Tope por IP 30 veces mayor (el Wi-Fi del local).
+  - Si se supera: 429 `too_many_pending` con un mensaje en español.
+- **Pista reciente:** si sonó en los últimos `REQUEST_REPLAY_WAIT_MINUTES` (30), la petición queda aceptada con `not_before`. El cliente ve "En la cola" con la espera, y entra a la cola al cumplirse. Los intentos fallidos no cuentan como "sonó".
+- **iTunes:** entra igual que las demás y suena como corte de 30 s con fundido, con la etiqueta "Preview 30 s".
+- **Motor caído:** tras 3 intentos, la petición entra igual a la cola sin evaluación.
+- **Interruptor apagado o modo Manual:** las peticiones quedan en la pestaña Peticiones para que decida el dueño. Sin la migración 010 se mantiene el comportamiento anterior.
+
+### Estados y anti-abuso
+- **Estados:** En evaluación → En la cola (con puesto y espera estimada) → Sonando ahora → Sonada. También Descartada, No se pudo reproducir y Esperando al DJ (interruptor apagado o Manual).
+- **Espera estimada:** lo que falta de la pista actual (hasta su punto de transición) más la duración de cada pista anterior. Si no hay dato, cuenta 180 s.
+- **"Sonada"** solo cuando la petición salió de la emisora después de sonar. Sus votos quedan sonados con ella.
+- **Fallo al reproducir:** el primero se reintenta (vuelve a la cola); con el segundo queda "No se pudo reproducir" y la emisora sigue.
+- **Dueño:** puede quitar de la cola (queda descartada y no vuelve a entrar), subir o bajar prioridad, y bloquear. Al bloquear, la canción va a `blocked_songs` y nuevas peticiones de ella se rechazan.
+- **Explícitas:** filtro opcional por local (`block_explicit`), con la marca `trackExplicitness` de iTunes. Jamendo no la informa.
+
+### Migración 010
+`010_peticiones_automaticas.sql`, idempotente:
+- Agrega las columnas y `blocked_songs` con RLS.
+- Completa `song_key` en las peticiones existentes.
+- Pasa a "aceptada" las que quedaron sin evaluar. Con el interruptor activo, entran a la cola por orden de llegada en el siguiente evento de la emisora.
+- Las pendientes de más de 24 h se consideran vencidas y no entran: es la misma ventana que ya usaba la consola.
