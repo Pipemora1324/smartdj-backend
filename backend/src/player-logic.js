@@ -103,17 +103,24 @@ export const previewTransition = (durationSeconds) => {
 // Estado de una petición tal como lo ven el dueño (consola) y el cliente (página pública).
 export const REQUEST_STATE_LABELS = {
   queued: 'En evaluación',
-  accepted: 'Esperando turno',
+  accepted: 'Esperando al DJ',
   bridging: 'El DJ la revisará',
   rejected: 'Descartada',
   played: 'Sonada',
   in_queue: 'En la cola',
   playing: 'Sonando ahora',
+  // Sonó hace poco: ya está aceptada y entra a la cola sola al terminar la espera.
+  waiting: 'En la cola',
+  unplayable: 'No se pudo reproducir',
 };
-export const requestState = (row) => {
-  if (row.status === 'played' || row.status === 'rejected') return row.status;
+// Fallos de reproducción con los que una petición se da por perdida (ver request-priority.js).
+const UNPLAYABLE_FAILURES = 2;
+export const requestState = (row, now = Date.now()) => {
+  if (row.status === 'played') return 'played';
+  if (row.status === 'rejected') return (Number(row.play_failures) || 0) >= UNPLAYABLE_FAILURES ? 'unplayable' : 'rejected';
   if (row.playing) return 'playing';
   if (row.in_queue) return 'in_queue';
+  if (row.not_before && new Date(row.not_before).getTime() > now) return 'waiting';
   return row.status;
 };
 // Completa (pista de Jamendo, también si una petición de iTunes se encontró completa) o preview de 30 s.
@@ -122,9 +129,12 @@ export const requestKind = (row) => {
   return provider === 'itunes' ? 'preview' : 'full';
 };
 // withGuest=false para la página pública: nunca expone el nombre de quien pidió.
-export const toStationRequest = (row, { withGuest = true } = {}) => {
-  const state = requestState(row);
+// positions: Map de la petición original → { position, etaSeconds } en la cola (los votos usan la de la original).
+export const toStationRequest = (row, { withGuest = true, positions = null, now = Date.now() } = {}) => {
+  const state = requestState(row, now);
   const kind = requestKind(row);
+  const queued = positions?.get(row.duplicate_of ?? row.id);
+  const waitUntil = state === 'waiting' ? new Date(row.not_before).toISOString() : null;
   return {
     id: row.id,
     title: row.title,
@@ -138,6 +148,14 @@ export const toStationRequest = (row, { withGuest = true } = {}) => {
     fits: row.status === 'accepted',
     reason: row.ai_reason ?? null,
     createdAt: row.created_at,
+    // En la cola: puesto (desde 1, contando todo lo que va antes) y segundos estimados hasta que suene.
+    position: state === 'in_queue' ? (queued?.position ?? null) : null,
+    etaSeconds:
+      state === 'in_queue' ? (queued?.etaSeconds ?? null) : waitUntil ? Math.max(0, Math.round((new Date(waitUntil) - now) / 1000)) : null,
+    waitUntil,
+    votes: Number(row.votes) || 1,
+    // Esta petición es un voto de otra igual que ya estaba pendiente.
+    duplicate: Boolean(row.duplicate_of),
     ...(withGuest ? { guestName: row.guest_name } : {}),
   };
 };

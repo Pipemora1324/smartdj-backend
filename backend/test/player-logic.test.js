@@ -100,3 +100,23 @@ test('el estado de una petición combina la evaluación, la cola y lo que suena'
   assert.equal(toStationRequest({ ...base, track_provider: 'jamendo' }).kindLabel, 'Completa');
   assert.equal('guestName' in toStationRequest(base, { withGuest: false }), false);
 });
+
+test('estados de las peticiones automáticas: puesto, espera, votos y fallos', async () => {
+  const { toStationRequest, requestState } = await import('../src/player-logic.js');
+  const now = Date.parse('2026-10-24T20:00:00Z');
+  const base = { id: 'r1', title: 'T', artist: 'A', status: 'accepted', provider: 'itunes', votes: 3 };
+  const positions = new Map([['r1', { position: 3, etaSeconds: 540 }]]);
+  const queued = toStationRequest({ ...base, in_queue: true }, { positions, now });
+  assert.deepEqual([queued.state, queued.position, queued.etaSeconds, queued.votes], ['in_queue', 3, 540, 3]);
+  // Un voto muestra el puesto de la original.
+  const vote = toStationRequest({ ...base, id: 'r2', duplicate_of: 'r1', in_queue: true }, { positions, now });
+  assert.deepEqual([vote.position, vote.duplicate], [3, true]);
+  // Pista que sonó hace poco: en la cola, con la hora desde la que puede sonar.
+  const waiting = toStationRequest({ ...base, not_before: '2026-10-24T20:10:00Z' }, { now });
+  assert.deepEqual([waiting.state, waiting.stateLabel, waiting.etaSeconds], ['waiting', 'En la cola', 600]);
+  assert.equal(requestState({ ...base, not_before: '2026-10-24T19:00:00Z' }, now), 'accepted');
+  assert.equal(toStationRequest({ ...base, status: 'rejected', play_failures: 2 }).stateLabel, 'No se pudo reproducir');
+  assert.equal(toStationRequest({ ...base, status: 'rejected', play_failures: 1 }).stateLabel, 'Descartada');
+  assert.equal(toStationRequest(base).stateLabel, 'Esperando al DJ');
+  assert.equal(toStationRequest({ ...base, votes: undefined }).votes, 1);
+});
