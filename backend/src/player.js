@@ -366,16 +366,18 @@ export const reorderRequests = (venueId, { maxDeferral, balanceEvery }) =>
   });
 
 // Puesto y espera estimada de cada petición en la cola, para la página pública (se recalcula como mucho cada 1,5 s).
+// fresh=true (consola del dueño, justo después de un cambio) se salta la caché.
 const positionsCache = createMemo({ ttlMs: 1500 });
-export const requestPositions = (venueId) =>
-  positionsCache.get(venueId, async () => {
-    const snap = await playerSnapshot(venueId, { create: false });
-    const positions = new Map();
-    for (const item of snap?.queue ?? []) {
-      if (item.requestId) positions.set(item.requestId, { position: item.position, etaSeconds: item.etaSeconds });
-    }
-    return positions;
-  });
+const loadPositions = async (venueId) => {
+  const snap = await playerSnapshot(venueId, { create: false });
+  const positions = new Map();
+  for (const item of snap?.queue ?? []) {
+    if (item.requestId) positions.set(item.requestId, { position: item.position, etaSeconds: item.etaSeconds });
+  }
+  return positions;
+};
+export const requestPositions = (venueId, { fresh = false } = {}) =>
+  fresh ? loadPositions(venueId) : positionsCache.get(venueId, () => loadPositions(venueId));
 
 // Datos para el AutoDJ: estado, cola actual e historial reciente (ids y artistas) del local.
 export const autodjContext = async (venueId, recentLimit) => {
