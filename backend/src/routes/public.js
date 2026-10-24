@@ -7,11 +7,13 @@ import { LIMITS, createPublicLimiter } from '../rate-limits.js';
 import { redis } from '../redis.js';
 import { publishRequestEvent } from '../request-status.js';
 import { lookupTrack, searchTracks } from '../music-search.js';
-import { hasColumn } from '../schema-check.js';
-import { playerSnapshot } from '../player.js';
+import { autoRequestsReady, hasColumn } from '../schema-check.js';
+import { playerSnapshot, requestPositions } from '../player.js';
 import { findVenue } from '../venue-lookup.js';
 import { availableProviders, findCachedTrack, searchCatalog } from '../music-catalog.js';
-import { requestsByIds } from '../station-requests.js';
+import { anonymousKey, checkPendingLimit, insertStationRequest, isSongBlocked, requestsByIds } from '../station-requests.js';
+import { songKeyOf } from '../request-priority.js';
+import { byClient } from '../rate-limits.js';
 import { toStationRequest } from '../player-logic.js';
 import { requestIdsSchema } from '../owner-validation.js';
 import { SEARCH_MIN_FULL, mergeSearchResults, toPublicTrack } from '../catalog-logic.js';
@@ -84,7 +86,8 @@ const searchItunesCached = async (term) => {
   return tracks;
 };
 // Inserta la petición; las columnas de la canción solo si la migración 004 ya se aplicó.
-const insertRequest = async (venueId, guestName, song, extra) => {
+// identity (migración 010): canción, cliente e IP anónimos; si la canción ya estaba pendiente, queda como voto.
+const insertRequest = async (venueId, guestName, song, extra, identity = null) => {
   const columns = ['establishment_id', 'guest_name', 'title', 'artist', 'genre', 'bpm', 'musical_key'];
   const values = [venueId, guestName, song.title, song.artist, song.genre, extra.bpm || null, extra.musicalKey || null];
   for (const [column, value] of [
@@ -94,6 +97,10 @@ const insertRequest = async (venueId, guestName, song, extra) => {
     ['provider', song.provider],
     ['track_id', song.trackCacheId],
     ['store_url', song.storeUrl],
+    ['song_key', identity?.songKey ?? undefined],
+    ['client_key', identity?.clientKey ?? undefined],
+    ['ip_key', identity?.ipKey ?? undefined],
+    ['explicit', identity ? Boolean(song.explicit) : undefined],
   ]) {
     // Sin valor se omite la columna y Postgres usa su valor por defecto (provider es NOT NULL con 'itunes').
     if (hasColumn(`song_requests.${column}`) && value !== undefined) {
@@ -101,12 +108,25 @@ const insertRequest = async (venueId, guestName, song, extra) => {
       values.push(value);
     }
   }
+  if (identity) return insertStationRequest(venueId, columns, values, identity.songKey);
   const r = await query(
     `INSERT INTO song_requests(${columns.join(',')}) VALUES(${values.map((_, i) => `$${i + 1}`).join(',')}) RETURNING id`,
     values,
   );
   return r.rows[0];
 };
+
+// Reglas de las peticiones automáticas (010): canción bloqueada, letra explícita y peticiones pendientes por cliente.
+// Devuelve la identidad anónima con la que se guarda la petición.
+const checkRequestRules = async (req, venue, song) => {
+  const songKey = songKeyOf(song.provider, song.trackId);
+  if (await isSongBlocked(venue.id, songKey)) throw new AppError(409, 'El DJ no acepta esta canción en este local. Elige otra.');
+  if (venue.block_explicit && song.explicit) throw new AppError(409, 'Este local no acepta canciones con letra explícita. Elige otra.');
+  const identity = { songKey, clientKey: anonymousKey(byClient(req)), ipKey: anonymousKey(req.ip) };
+  await checkPendingLimit(venue.id, identity);
+  return identity;
+};
+const VOTE_MESSAGE = 'Alguien ya la había pedido: sumamos tu voto y verás su turno.';
 
 router.get('/venues/:code', nowLimiter, async (req, res, next) => {
   try {
@@ -244,7 +264,21 @@ router.post('/venues/:code/requests', requestLimiter, async (req, res, next) => 
     const d = payload.parse(req.body);
     const venue = await findVenue(req.params.code);
     const song = await requestedSong(venue, d);
-    const row = await insertRequest(venue.id, d.guestName || 'Invitado', song, d);
+    const identity = autoRequestsReady() ? await checkRequestRules(req, venue, song) : null;
+    const row = await insertRequest(venue.id, d.guestName || 'Invitado', song, d, identity);
+    if (row.duplicateOf) {
+      // Voto: no se evalúa ni entra otra vez; el cliente sigue el estado de la petición original.
+      void redis
+        .publish(`venue:${venue.id}`, JSON.stringify({ type: 'request_updated', requestId: row.duplicateOf }))
+        .catch((err) => logger.error('No se pudo avisar el voto', { err: err }));
+      await publishRequestEvent(row.id, {
+        stage: 'result',
+        message: VOTE_MESSAGE,
+        partialScore: 1,
+        result: { accepted: true, score: null, reason: VOTE_MESSAGE, bridgeSequence: [] },
+      }).catch((err) => logger.error('No se pudo publicar el voto', { err: err }));
+      return res.status(202).json({ id: row.id, status: 'vote', duplicate: true, message: VOTE_MESSAGE });
+    }
     void redis
       .publish(`venue:${venue.id}`, JSON.stringify({ type: 'request_created', requestId: row.id }))
       .catch((err) => logger.error('No se pudo avisar la petición nueva', { err: err }));
@@ -269,7 +303,8 @@ router.get('/venues/:code/requests', nowLimiter, async (req, res, next) => {
     const ids = requestIdsSchema.parse(req.query.ids);
     const venue = await findVenue(req.params.code);
     if (!hasColumn('song_requests.track_id')) return res.json({ requests: [] });
-    res.json({ requests: (await requestsByIds(venue.id, ids)).map((row) => toStationRequest(row, { withGuest: false })) });
+    const positions = hasColumn('player_state.establishment_id') ? await requestPositions(venue.id) : null;
+    res.json({ requests: (await requestsByIds(venue.id, ids)).map((row) => toStationRequest(row, { withGuest: false, positions })) });
   } catch (e) {
     next(e);
   }
