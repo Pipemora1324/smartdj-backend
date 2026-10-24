@@ -98,7 +98,7 @@ export const startJamendo = async ({ port = 0 } = {}) => {
 export const ITUNES_SONGS = [
   { trackId: 1440818839, trackName: 'Vivir Mi Vida', artistName: 'Marc Anthony', primaryGenreName: 'Salsa y Tropical' },
   { trackId: 1440818840, trackName: 'Valió la Pena', artistName: 'Marc Anthony', primaryGenreName: 'Salsa y Tropical' },
-  { trackId: 1440818841, trackName: 'Thunderstruck', artistName: 'AC/DC', primaryGenreName: 'Metal' },
+  { trackId: 1440818841, trackName: 'Thunderstruck', artistName: 'AC/DC', primaryGenreName: 'Metal', trackExplicitness: 'explicit' },
 ].map((s) => ({
   ...s,
   kind: 'song',
