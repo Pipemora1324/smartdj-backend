@@ -244,11 +244,10 @@ export const isReadyForQueue = (row, now = Date.now()) =>
 // El orden fino lo decide después reorderRequests() en player.js. Devuelve cuántas entraron.
 export const autoQueueRequests = async (venue, requests) => {
   let added = 0;
-  const queuedTracks = new Map(
-    (await query('SELECT track_id, request_id FROM play_queue WHERE establishment_id=$1 AND request_id IS NOT NULL', [venue.id])).rows.map(
-      (r) => [r.track_id, r.request_id],
-    ),
-  );
+  const queued = (await query('SELECT id, track_id, request_id FROM play_queue WHERE establishment_id=$1', [venue.id])).rows;
+  const queuedTracks = new Map(queued.filter((r) => r.request_id).map((r) => [r.track_id, r.request_id]));
+  // Pistas que la IA ya puso en la cola: si alguien pide una, ese lugar pasa a ser de la petición (no suena dos veces).
+  const aiTracks = new Map(queued.filter((r) => !r.request_id).map((r) => [r.track_id, r.id]));
   for (const request of requests.filter((r) => isReadyForQueue(r))) {
     const track = await resolveRequestTrack(venue, request).catch((err) => {
       logger.error('No se pudo preparar la petición', { requestId: request.id, err });
@@ -272,6 +271,18 @@ export const autoQueueRequests = async (venue, requests) => {
     if (notBefore && new Date(notBefore).getTime() > Date.now()) {
       await query('UPDATE song_requests SET not_before=$2 WHERE id=$1', [request.id, notBefore]);
       void publishRequestChange(venue.id, request.id);
+      continue;
+    }
+    const aiItem = aiTracks.get(track.id);
+    if (aiItem) {
+      await query("UPDATE play_queue SET source='request', request_id=$2, reason='Pedida por el público.' WHERE id=$1", [
+        aiItem,
+        request.id,
+      ]);
+      aiTracks.delete(track.id);
+      queuedTracks.set(track.id, request.id);
+      void publishRequestChange(venue.id, request.id);
+      added += 1;
       continue;
     }
     await enqueue(venue.id, track, { source: 'request', requestId: request.id, reason: 'Pedida por el público.', ...transitionFor(track) });
