@@ -10,7 +10,8 @@ import { tagsForGenre } from './catalog-logic.js';
 export const DEFAULT_RULES = { maxDeferral: 3, balanceEvery: 4 };
 // Pesos del puntaje: un puesto de llegada vale 1. Dos votos ≈ adelantar un puesto; una transición perfecta frente a
 // un choque brusco de género y energía también vale un puesto y medio, así que el ajuste nunca es grande.
-export const WEIGHTS = { vote: 1, owner: 1, smooth: 1.5 };
+// Cada clic del dueño (subir o bajar) vale 3: siempre gana al menos un puesto, aunque la transición no ayude.
+export const WEIGHTS = { vote: 1, owner: 3, smooth: 1.5 };
 // Duración supuesta de una pista sin dato, para la espera estimada.
 export const DEFAULT_TRACK_SECONDS = 180;
 
