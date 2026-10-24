@@ -3,7 +3,7 @@ import axios from 'axios';
 import { redis, createWorkerConnection } from './redis.js';
 import { query } from './db.js';
 import { config } from './config.js';
-import { hasColumn } from './schema-check.js';
+import { autoRequestsReady, hasColumn } from './schema-check.js';
 import { grpcEnabled, streamEvaluation } from './ai-client.js';
 import { publishRequestEvent, toLiveEvent } from './request-status.js';
 import { afterRequestEvaluated } from './autodj.js';
@@ -101,10 +101,30 @@ export const closeQueue = async () => {
   await requestQueue.close();
 };
 
+const NO_EVALUATION_REASON = 'El motor no respondió a tiempo: tu petición entra igual a la cola.';
+const enterWithoutEvaluation = async (requestId) => {
+  const r = await query(
+    "UPDATE song_requests SET status='accepted', ai_reason=$2, evaluated_at=NOW() WHERE id=$1 AND status='queued' RETURNING establishment_id",
+    [requestId, NO_EVALUATION_REASON],
+  );
+  await publishRequestEvent(requestId, {
+    stage: 'result',
+    message: NO_EVALUATION_REASON,
+    partialScore: 0,
+    result: { accepted: true, score: null, reason: NO_EVALUATION_REASON, bridgeSequence: [] },
+  });
+  if (r.rowCount) await afterRequestEvaluated(r.rows[0].establishment_id);
+};
+
 // Si se agotan los reintentos, el navegador recibe un estado final de error en lugar de quedarse esperando.
 worker.on('failed', (job, err) => {
   logger.error('Evaluación fallida', { attempt: job?.attemptsMade, requestId: job?.data?.requestId, err });
   if (job && job.attemptsMade >= (job.opts.attempts ?? 1)) {
+    // Con peticiones automáticas (010) una petición válida nunca se pierde: entra a la cola sin evaluación.
+    if (autoRequestsReady()) {
+      void enterWithoutEvaluation(job.data.requestId).catch((e) => logger.error('No se pudo pasar la petición a la cola', { err: e }));
+      return;
+    }
     publishRequestEvent(job.data.requestId, {
       stage: 'failed',
       message: 'No pudimos evaluar tu petición en este momento. El DJ la revisará manualmente.',
