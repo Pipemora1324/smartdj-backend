@@ -59,7 +59,8 @@ export const JAMENDO_TRACKS = Array.from({ length: 48 }, (_, i) => ({
   album_name: 'Demo',
   image: `https://usercontent.jamendo.com/?type=album&id=${i + 1}&width=300`,
   audio: `https://prod-1.storage.jamendo.com/?trackid=${2000000 + i}&format=mp31`,
-  license_ccurl: i % 2 ? 'http://creativecommons.org/licenses/by-nc-sa/3.0/' : 'http://creativecommons.org/licenses/by-sa/3.0/',
+  // Jamendo devuelve las licencias con http; el backend las pasa a https (es lo que se prueba).
+  license_ccurl: i % 2 ? 'http://creativecommons.org/licenses/by-nc-sa/3.0/' : 'http://creativecommons.org/licenses/by-sa/3.0/', // NOSONAR
   waveform: JSON.stringify({ peaks: Array.from({ length: 40 }, (_v, k) => (k * 7 + i) % 100) }),
   musicinfo: { speed: SPEEDS[i % SPEEDS.length], tags: { genres: [GENRES[i % GENRES.length]] } },
 }));
@@ -71,7 +72,7 @@ export const startJamendo = async ({ port = 0 } = {}) => {
   const state = { calls: 0, failing: false, searchDown: false };
   const server = http.createServer(
     delayed((req, res) => {
-      const url = new URL(req.url, 'http://x');
+      const url = new URL(req.url, 'http://x'); // NOSONAR: base ficticia solo para leer la ruta y el query
       state.calls += 1;
       if (state.failing) return sendJson(res, 500, { error: 'caído' });
       if (url.searchParams.get('client_id') !== JAMENDO_CLIENT_ID)
@@ -112,7 +113,7 @@ export const startItunes = async ({ port = 0 } = {}) => {
   const state = { calls: 0 };
   const server = http.createServer(
     delayed((req, res) => {
-      const url = new URL(req.url, 'http://x');
+      const url = new URL(req.url, 'http://x'); // NOSONAR: base ficticia solo para leer la ruta y el query
       state.calls += 1;
       if (url.pathname === '/lookup')
         return sendJson(res, 200, { results: ITUNES_SONGS.filter((s) => String(s.trackId) === url.searchParams.get('id')) });

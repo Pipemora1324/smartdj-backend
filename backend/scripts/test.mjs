@@ -20,7 +20,9 @@ const unit = run(process.execPath, ['--test', 'test/*.test.js']);
 if (unit !== 0) finish(unit);
 
 const needsDocker = process.env.SKIP_ENGINE !== '1' || (process.env.SKIP_INTEGRATION !== '1' && !process.env.TEST_DATABASE_URL);
-if (needsDocker && spawnSync('docker', ['info'], { stdio: 'ignore' }).status !== 0) {
+// docker se busca en el PATH del desarrollador: es una herramienta local de pruebas, no código de producción.
+const dockerAvailable = () => spawnSync('docker', ['info'], { stdio: 'ignore' }).status === 0; // NOSONAR
+if (needsDocker && !dockerAvailable()) {
   console.error('\nDocker no está disponible. Lo necesitan las pruebas del motor y las de integración.');
   console.error('Usa SKIP_ENGINE=1 SKIP_INTEGRATION=1 para correr solo las unitarias.');
   finish(1);
