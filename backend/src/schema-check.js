@@ -41,7 +41,22 @@ export const OPTIONAL_COLUMNS = {
   'song_requests.track_id': '008_peticiones_emisora.sql',
   'song_requests.store_url': '008_peticiones_emisora.sql',
   'mix_history.request_id': '008_peticiones_emisora.sql',
+  'establishments.auto_accept_requests': '010_peticiones_automaticas.sql',
+  'establishments.block_explicit': '010_peticiones_automaticas.sql',
+  'song_requests.song_key': '010_peticiones_automaticas.sql',
+  'song_requests.client_key': '010_peticiones_automaticas.sql',
+  'song_requests.ip_key': '010_peticiones_automaticas.sql',
+  'song_requests.votes': '010_peticiones_automaticas.sql',
+  'song_requests.duplicate_of': '010_peticiones_automaticas.sql',
+  'song_requests.passed_count': '010_peticiones_automaticas.sql',
+  'song_requests.owner_priority': '010_peticiones_automaticas.sql',
+  'song_requests.not_before': '010_peticiones_automaticas.sql',
+  'song_requests.play_failures': '010_peticiones_automaticas.sql',
+  'song_requests.explicit': '010_peticiones_automaticas.sql',
+  'blocked_songs.song_key': '010_peticiones_automaticas.sql',
 };
+// Peticiones automáticas (010): sin ellas, la emisora sigue como antes (el dueño decide qué entra).
+export const autoRequestsReady = () => hasColumn('song_requests.votes') && hasColumn('blocked_songs.song_key');
 // Tablas a revisar: las obligatorias y las de columnas opcionales (algunas tablas son nuevas, de la 006).
 export const schemaTables = () => [
   ...new Set([...Object.keys(REQUIRED_SCHEMA), ...Object.keys(OPTIONAL_COLUMNS).map((key) => key.split('.')[0])]),
