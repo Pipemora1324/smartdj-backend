@@ -12,6 +12,7 @@ import {
   playerSettingsSchema,
   queueAddSchema,
   queueOrderSchema,
+  requestPrioritySchema,
   requestQueueSchema,
   skipSchema,
   uuidParam,
@@ -24,14 +25,22 @@ import {
   pause,
   play,
   playerSnapshot,
+  requestPositions,
   removeFromQueue,
   reorderQueue,
   updateSettings,
 } from '../player.js';
 import { ownedVenue } from './venues.js';
 import { ensureQueue } from '../autodj.js';
-import { dismissRequest, pendingRequests, queueRequestById } from '../station-requests.js';
-import { hasColumn } from '../schema-check.js';
+import {
+  adjustPriority,
+  autoAcceptsRequests,
+  blockRequest,
+  dismissRequest,
+  pendingRequests,
+  queueRequestById,
+} from '../station-requests.js';
+import { autoRequestsReady, hasColumn } from '../schema-check.js';
 import { toStationRequest } from '../player-logic.js';
 
 // Reproductor de la emisora de un local (/api/venues/:id/player). Solo el dueño del local.
@@ -146,7 +155,24 @@ const requireRequests = () => {
   if (!hasColumn('song_requests.track_id'))
     throw new AppError(503, 'Las peticiones en la emisora no están listas: falta ejecutar la migración 008_peticiones_emisora.sql.');
 };
-const replyRequests = async (req, res) => res.json({ requests: (await pendingRequests(req.venue.id)).map((row) => toStationRequest(row)) });
+// Peticiones pendientes con su puesto en la cola y si el local las acepta solas (interruptor de la 010).
+const replyRequests = async (req, res) => {
+  const [rows, positions, state] = await Promise.all([
+    pendingRequests(req.venue.id),
+    requestPositions(req.venue.id, { fresh: true }),
+    playerSnapshot(req.venue.id, { create: false }),
+  ]);
+  res.json({
+    requests: rows.map((row) => toStationRequest(row, { positions })),
+    autoAccept: autoAcceptsRequests(req.venue, state?.mode ?? 'autodj'),
+    autoAcceptEnabled: autoRequestsReady() ? req.venue.auto_accept_requests !== false : null,
+    blockExplicit: autoRequestsReady() ? Boolean(req.venue.block_explicit) : null,
+  });
+};
+const requireAutoRequests = () => {
+  if (!autoRequestsReady())
+    throw new AppError(503, 'Las peticiones automáticas no están listas: falta ejecutar la migración 010_peticiones_automaticas.sql.');
+};
 router.get(
   '/requests',
   handle(async (req, res) => {
@@ -171,6 +197,28 @@ router.post(
   handle(async (req, res) => {
     requireRequests();
     await dismissRequest(req.venue, uuidParam.parse(req.params.requestId));
+    await replyRequests(req, res);
+  }),
+);
+// Subir o bajar una petición en el orden (dentro del límite de aplazamiento); el AutoDJ reordena enseguida.
+router.post(
+  '/requests/:requestId/priority',
+  handle(async (req, res) => {
+    requireRequests();
+    requireAutoRequests();
+    await adjustPriority(req.venue, uuidParam.parse(req.params.requestId), requestPrioritySchema.parse(req.body ?? {}).delta);
+    await ensureQueue(req.venue);
+    await replyRequests(req, res);
+  }),
+);
+// Bloquear: descarta la petición (también si ya estaba en la cola) y la canción no se acepta más en el local.
+router.post(
+  '/requests/:requestId/block',
+  handle(async (req, res) => {
+    requireRequests();
+    requireAutoRequests();
+    await blockRequest(req.venue, uuidParam.parse(req.params.requestId));
+    await ensureQueue(req.venue);
     await replyRequests(req, res);
   }),
 );
