@@ -4,12 +4,20 @@ import { config } from './config.js';
 import { query } from './db.js';
 import { redis } from './redis.js';
 import { grpcEnabled, suggestNext } from './ai-client.js';
-import { autodjContext, enqueue } from './player.js';
+import { autodjContext, enqueue, reorderRequests } from './player.js';
 import { cachedCandidates, radioFallback, searchCatalog } from './music-catalog.js';
 import { tagsForGenre, tagsForVenueProfile } from './catalog-logic.js';
 import { MIN_QUEUE, RECENT_LIMIT, defaultTransition, pickFallback, toFeatures } from './player-logic.js';
-import { hasColumn } from './schema-check.js';
-import { pendingRequests, publishRequestChange, resolveRequestTrack, transitionFor } from './station-requests.js';
+import { autoRequestsReady, hasColumn } from './schema-check.js';
+import {
+  autoAcceptsRequests,
+  autoQueueRequests,
+  pendingRequests,
+  publishRequestChange,
+  resolveRequestTrack,
+  transitionFor,
+} from './station-requests.js';
+import { aiTracksNeeded } from './request-priority.js';
 import { logger } from './logger.js';
 
 // AutoDJ: mantiene al menos MIN_QUEUE pistas en la cola de cada local. Solo se ejecuta por eventos
@@ -17,6 +25,8 @@ import { logger } from './logger.js';
 const MIN_CANDIDATES = 20;
 const MAX_CANDIDATES = 120;
 const LOCK_SECONDS = 30;
+// Pistas de la IA que se piden al motor en una sola pasada (cada una es una llamada a SuggestNext).
+const MAX_AI_PICKS = 8;
 // Peticiones que el AutoDJ intercala solo (las que el motor aceptó); las demás las decide el dueño.
 const MAX_REQUESTS_IN_QUEUE = 2;
 // Si el motor falla, no se le vuelve a preguntar durante un minuto: cada intento esperaría el timeout de conexión
@@ -134,9 +144,23 @@ export const ensureQueue = async (venue) => {
     let { state, queue, recent } = await autodjContext(venue.id, RECENT_LIMIT);
     if (!state || state.mode !== 'autodj') return 0;
     const requests = hasColumn('song_requests.track_id') ? await pendingRequests(venue.id) : [];
-    added += await interleaveRequests(venue, queue, new Set(recent.map((r) => r.track_id)), requests);
+    // Con "Aceptar peticiones automáticamente" (010) toda petición lista entra a la cola y luego se ordena.
+    // Con el interruptor apagado decide el dueño. Sin la 010 se mantiene el intercalado anterior (solo las que encajan).
+    const auto = autoAcceptsRequests(venue, state.mode);
+    if (auto) added += await autoQueueRequests(venue, requests);
+    else if (!autoRequestsReady()) added += await interleaveRequests(venue, queue, new Set(recent.map((r) => r.track_id)), requests);
     if (added) ({ state, queue, recent } = await autodjContext(venue.id, RECENT_LIMIT));
-    if (queue.length >= MIN_QUEUE) return added;
+    const requestCount = queue.filter((q) => q.source === 'request').length;
+    const picksNeeded = auto
+      ? Math.min(
+          MAX_AI_PICKS,
+          aiTracksNeeded(requestCount, { minQueue: MIN_QUEUE, balanceEvery: config.requests.balanceEvery }) - (queue.length - requestCount),
+        )
+      : MIN_QUEUE - queue.length;
+    if (picksNeeded <= 0) {
+      if (auto) await reorderRequests(venue.id, config.requests);
+      return added;
+    }
     const hints = requestHints(requests);
     const tags = [...new Set([...hints.genres.flatMap(tagsForGenre), ...tagsForVenueProfile(venue)])];
     // Las pistas de peticiones pendientes no son candidatas: deben sonar como petición (y quedar "sonadas").
@@ -145,7 +169,7 @@ export const ensureQueue = async (venue) => {
     const recentIds = [...recent.map((r) => r.track_id), ...exclude];
     const recentArtists = [...queue.map((q) => q.artist).reverse(), state.track?.artist, ...recent.map((r) => r.artist)];
     let current = queue.at(-1) ?? state.track ?? null;
-    for (let i = queue.length; i < MIN_QUEUE && candidates.length; i += 1) {
+    for (let i = 0; i < picksNeeded && candidates.length; i += 1) {
       const pick = await choose(venue, current, candidates, recentIds, recentArtists, state.crossfade_seconds, hints);
       if (!pick) break;
       await enqueue(venue.id, pick.track, {
@@ -161,6 +185,7 @@ export const ensureQueue = async (venue) => {
       recentArtists.unshift(pick.track.artist);
       current = pick.track;
     }
+    if (auto) await reorderRequests(venue.id, config.requests);
   } catch (err) {
     logger.error('El AutoDJ no pudo rellenar la cola', { venueId: venue.id, err });
   } finally {
