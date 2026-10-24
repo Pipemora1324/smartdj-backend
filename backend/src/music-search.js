@@ -38,6 +38,8 @@ export const toTrack = (item) => {
     kind: 'preview',
     kindLabel: 'Preview 30 s',
     storeUrl: safeMediaUrl(item.trackViewUrl),
+    // iTunes marca la letra explícita; el local puede no aceptarlas (block_explicit, migración 010).
+    explicit: item.trackExplicitness === 'explicit',
   };
 };
 

@@ -28,8 +28,10 @@ test('convierte un resultado de iTunes en canción', () => {
     kind: 'preview',
     kindLabel: 'Preview 30 s',
     storeUrl: 'https://music.apple.com/co/album/vivir-mi-vida/1440818834?i=1440818839',
+    explicit: false,
   });
   assert.equal(toTrack({ ...ITEM, trackViewUrl: 'https://evil.example/x' }).storeUrl, null);
+  assert.equal(toTrack({ ...ITEM, trackExplicitness: 'explicit' }).explicit, true);
 });
 
 test('descarta resultados que no son canciones o no tienen id', () => {
