@@ -56,19 +56,19 @@ test('el SSE de la petición entrega la foto actual y luego el resultado', async
   assert.equal(events.at(-1).data.result.accepted, true);
 });
 
-test('si el motor cae, la evaluación termina en error y la petición sigue pendiente', async () => {
+test('si el motor cae, la petición entra igual a la cola sin evaluación', async () => {
   stack.engine.state.down = true;
   const res = await ask({ trackId: VALIO });
   // Con 3 intentos y espera exponencial (2 s y 4 s), el estado final llega en unos 6 s.
   const live = await waitFor(
     async () => {
       const r = await stack.api(`/api/public/requests/${res.body.id}`);
-      return r.body.live.stage === 'failed' && r.body;
+      return r.body.live.stage === 'result' && r.body;
     },
     { timeoutMs: 20000, intervalMs: 300 },
   );
-  assert.match(live.live.message, /DJ la revisará/);
-  assert.equal((await statusRow(res.body.id)).status, 'queued');
+  assert.match(live.live.message, /no respondió a tiempo/);
+  assert.equal((await statusRow(res.body.id)).status, 'accepted');
 });
 
 test('una pista de Jamendo se pide desde el caché del buscador y respeta la licencia del local', async () => {
@@ -156,7 +156,7 @@ test('en AutoDJ una petición aceptada se intercala sola con su versión libre',
   assert.equal(item.requestId, res.body.id);
   assert.equal(item.track.provider, 'jamendo', 'usa la versión completa del catálogo libre');
   assert.equal(item.track.title, 'Vivir Mi Vida');
-  assert.notEqual(queue[0].source, 'request', 'no salta delante de la pista siguiente');
+  assert.equal(queue[0].source, 'request', 'con la emisora detenida, la petición va primero');
 });
 
 test('el SSE del local avisa los cambios de la emisora y no las peticiones de otros', async () => {
@@ -225,13 +225,15 @@ test('varios SSE de peticiones comparten una sola conexión a Redis', async () =
   assert.ok(during - before <= 1, `abrió ${during - before} conexiones a Redis para 6 SSE`);
 });
 
-test('el límite de peticiones por IP responde 429 en español', async () => {
-  const headers = { 'x-forwarded-for': '203.0.113.7' };
+test('el límite de peticiones por minuto responde 429 en español', async () => {
+  // Las inválidas también cuentan: así se llega al límite sin chocar con el de pendientes por cliente.
+  const headers = { 'x-forwarded-for': '203.0.113.7', 'x-client-id': 'cliente-limite-1' };
   const statuses = [];
-  for (let i = 0; i < 11; i += 1) statuses.push((await ask({ trackId: VIVIR }, headers)).status);
-  assert.deepEqual(statuses.slice(0, 10), Array(10).fill(202));
+  for (let i = 0; i < 10; i += 1) statuses.push((await ask({}, headers)).status);
+  assert.deepEqual(statuses, Array(10).fill(400));
   const last = await ask({ trackId: VIVIR }, headers);
   assert.equal(last.status, 429);
   assert.equal(last.body.code, 'rate_limited');
-  assert.equal((await ask({ trackId: VIVIR }, { 'x-forwarded-for': '203.0.113.8' })).status, 202, 'otra IP no se ve afectada');
+  const neighbor = await ask({ trackId: VIVIR }, { ...headers, 'x-client-id': 'cliente-limite-2' });
+  assert.equal(neighbor.status, 202, 'otro celular en el mismo Wi-Fi no se ve afectado');
 });
