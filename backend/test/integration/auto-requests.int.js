@@ -257,3 +257,42 @@ test('30 clientes piden a la vez: todas entran, suenan sin duplicados ni pérdid
     assert.ok(passedBy <= 3, `una petición fue aplazada ${passedBy} veces`);
   });
 });
+
+test('el tope de pendientes por red frena a quien invente identificadores', async () => {
+  const { anonymousKey } = await import('../../src/station-requests.js');
+  // 90 pendientes (3 × 30) desde la misma IP: se cargan directo para no depender de los límites por minuto.
+  await stack.query(
+    `INSERT INTO song_requests(establishment_id, guest_name, title, artist, genre, status, ip_key)
+     SELECT $1, 'X', 'T' || g, 'A', 'Pop', 'accepted', $2 FROM generate_series(1, 90) g`,
+    [owner.venue.id, anonymousKey('10.9.0.250')],
+  );
+  const res = await ask({ trackId: VALIO }, { 'x-forwarded-for': '10.9.0.250', 'x-client-id': 'cliente-nuevo-0001' });
+  assert.equal(res.status, 429);
+  assert.match(res.body.error, /desde esta red/);
+});
+
+test('una petición sin audio posible queda descartada con un aviso', async () => {
+  await player();
+  const { rows } = await stack.query(
+    `INSERT INTO song_requests(establishment_id, guest_name, title, artist, genre, status, evaluated_at)
+     VALUES($1, 'X', 'Canción inexistente', 'Nadie', 'Pop', 'accepted', NOW()) RETURNING id`,
+    [owner.venue.id],
+  );
+  await player();
+  const row = await requestRow(rows[0].id);
+  assert.equal(row.status, 'rejected');
+  assert.match(row.ai_reason, /No encontramos audio/);
+});
+
+test('dos peticiones distintas que suenan con la misma pista quedan como una sola con dos votos', async () => {
+  await player();
+  // "Vivir Mi Vida" de iTunes tiene versión completa en Jamendo: pedir las dos es pedir la misma pista.
+  await stack.api(`/api/public/venues/${owner.venue.public_code}/search?q=vivir`);
+  const itunes = await ask({ trackId: VIVIR });
+  await inQueue(itunes.body.id);
+  const jamendo = await ask({ provider: 'jamendo', externalId: '2000000' });
+  await waitFor(async () => (await requestRow(jamendo.body.id)).duplicate_of === itunes.body.id);
+  const items = (await queueOf()).filter((q) => q.track.externalId === '2000000');
+  assert.equal(items.length, 1);
+  assert.equal(items[0].votes, 2);
+});
