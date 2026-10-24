@@ -1,7 +1,7 @@
 // Pruebas de las validaciones del panel del dueño.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { trackSearchSchema, uuidParam, venuePatchSchema, venueSchema } from '../src/owner-validation.js';
+import { requestPrioritySchema, trackSearchSchema, uuidParam, venuePatchSchema, venueSchema } from '../src/owner-validation.js';
 
 const message = (fn) => {
   try {
@@ -97,4 +97,20 @@ test('valida las acciones sobre peticiones y la consulta pública de estados', a
     /hasta 10/,
   );
   assert.throws(() => requestIdsSchema.parse(undefined), /Faltan/);
+});
+
+test('el local activa las peticiones automáticas y el filtro de explícitas; la prioridad sube o baja de a uno', () => {
+  assert.deepEqual(venuePatchSchema.parse({ auto_accept_requests: false, block_explicit: true }), {
+    auto_accept_requests: false,
+    block_explicit: true,
+  });
+  assert.match(
+    message(() => venuePatchSchema.parse({ auto_accept_requests: 'no' })),
+    /automáticamente/,
+  );
+  assert.deepEqual(requestPrioritySchema.parse({ delta: -1 }), { delta: -1 });
+  assert.equal(
+    message(() => requestPrioritySchema.parse({ delta: 5 })),
+    'La prioridad sube con 1 o baja con -1.',
+  );
 });

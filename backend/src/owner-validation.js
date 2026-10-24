@@ -18,6 +18,9 @@ export const venueSchema = z.object({
 export const venuePatchSchema = venueSchema
   .extend({
     exclude_non_commercial: z.boolean({ invalid_type_error: 'Indica si se excluyen las pistas no comerciales (true o false).' }),
+    // Peticiones automáticas (migración 010): entran solas a la cola en AutoDJ; filtro de letra explícita.
+    auto_accept_requests: z.boolean({ invalid_type_error: 'Indica si se aceptan peticiones automáticamente (true o false).' }),
+    block_explicit: z.boolean({ invalid_type_error: 'Indica si se bloquean las canciones explícitas (true o false).' }),
   })
   .partial()
   .refine((d) => Object.keys(d).length > 0, { message: 'No hay cambios para guardar.' });
@@ -105,3 +108,7 @@ export const requestIdsSchema = z
     ),
   ])
   .pipe(z.array(uuidParam).min(1, 'Faltan las peticiones.').max(10, 'Se consultan hasta 10 peticiones.'));
+// Subir (+1) o bajar (-1) una petición en el orden de la cola.
+export const requestPrioritySchema = z.object({
+  delta: z.union([z.literal(1), z.literal(-1)], { errorMap: () => ({ message: 'La prioridad sube con 1 o baja con -1.' }) }),
+});
