@@ -1,9 +1,11 @@
 import { query, withTransaction } from './db.js';
 import { redis } from './redis.js';
 import { AppError } from './errors.js';
-import { hasColumn } from './schema-check.js';
+import { autoRequestsReady, hasColumn } from './schema-check.js';
 import { toPublicTrack } from './catalog-logic.js';
 import { insertAt, livePosition, reorderPositions, requestInsertIndex } from './player-logic.js';
+import { MAX_PLAY_FAILURES, layoutQueue, planRequestOrder, queueEta, remainingOfCurrent } from './request-priority.js';
+import { createMemo } from './memo.js';
 import { logger } from './logger.js';
 
 // Estado del reproductor y cola de cada local (migración 006). Toda escritura va en una transacción
@@ -22,16 +24,26 @@ const lockState = async (client, venueId) => {
   return (await client.query('SELECT * FROM player_state WHERE establishment_id=$1 FOR UPDATE', [venueId])).rows[0];
 };
 
-const QUEUE_SQL = `SELECT q.id AS queue_id, q.position, q.source, q.request_id, q.score, q.reason, q.transition_at_seconds, q.crossfade_seconds, t.*
-  FROM play_queue q JOIN track_cache t ON t.id = q.track_id WHERE q.establishment_id=$1 ORDER BY q.position, q.created_at LIMIT $2`;
-export const loadQueue = async (db, venueId, limit = 100) => (await db.query(QUEUE_SQL, [venueId, limit])).rows;
+// Cada pista de la cola con su petición (si vino del público): quién la pidió, votos y datos para ordenarla.
+const queueSql = () => {
+  const extra = autoRequestsReady()
+    ? ', r.votes AS request_votes, r.passed_count AS request_passed, r.owner_priority AS request_priority'
+    : '';
+  return `SELECT q.id AS queue_id, q.position, q.source, q.request_id, q.score, q.reason, q.transition_at_seconds, q.crossfade_seconds, t.*,
+    r.guest_name AS request_guest, r.created_at AS request_created_at${extra}
+  FROM play_queue q JOIN track_cache t ON t.id = q.track_id LEFT JOIN song_requests r ON r.id = q.request_id
+  WHERE q.establishment_id=$1 ORDER BY q.position, q.created_at LIMIT $2`;
+};
+export const loadQueue = async (db, venueId, limit = 100) => (await db.query(queueSql(), [venueId, limit])).rows;
 
 const num = (value) => (value === null || value === undefined ? null : Number(value));
-const toQueueItem = (row, options) => ({
+const toQueueItem = (row, options, eta) => ({
   id: row.queue_id,
   position: row.position,
+  etaSeconds: eta?.etaSeconds ?? null,
   source: row.source,
   requestId: row.request_id,
+  votes: row.request_votes ?? (row.request_id ? 1 : null),
   score: row.score,
   reason: row.reason,
   transitionAtSeconds: num(row.transition_at_seconds),
@@ -52,13 +64,15 @@ export const playerSnapshot = async (venueId, { withAudio = true, queueLimit = 1
   const state = stateResult.rows[0];
   if (!state) return null;
   const meta = state.current_meta ?? {};
-  const items = queue.map((row) => toQueueItem(row, { withAudio }));
+  const position = livePosition(state);
+  const etas = queueEta(queue, { remainingSeconds: remainingOfCurrent(state, position) });
+  const items = queue.map((row, i) => toQueueItem(row, { withAudio }, etas[i]));
   return {
     status: state.status,
     mode: state.mode,
     volume: state.volume,
     crossfadeSeconds: state.crossfade_seconds,
-    positionSeconds: livePosition(state),
+    positionSeconds: position,
     updatedAt: state.updated_at,
     current: state.track
       ? {
@@ -102,8 +116,31 @@ const markRequestPlayed = (client, requestId) => {
   const sets = ["status='played'"];
   if (hasColumn('song_requests.played_at')) sets.push('played_at=NOW()');
   if (hasColumn('song_requests.status_updated_at')) sets.push('status_updated_at=NOW()');
-  return client.query(`UPDATE song_requests SET ${sets.join(',')} WHERE id=$1`, [requestId]);
+  // Los votos (peticiones repetidas de la misma canción) quedan sonadas junto con la original.
+  const target = hasColumn('song_requests.duplicate_of') ? '(id=$1 OR duplicate_of=$1)' : 'id=$1';
+  return client.query(`UPDATE song_requests SET ${sets.join(',')} WHERE ${target}`, [requestId]);
 };
+
+// Una petición que no cargó (error) se reintenta una vez; con el segundo fallo queda "No se pudo reproducir"
+// junto con sus votos, y la emisora sigue con la siguiente pista.
+const markRequestFailed = (client, requestId) =>
+  client.query(
+    `UPDATE song_requests SET play_failures = play_failures + 1,
+       status = CASE WHEN play_failures + 1 >= $2 THEN 'rejected'::request_status ELSE status END,
+       ai_reason = CASE WHEN play_failures + 1 >= $2 THEN 'No se pudo reproducir.' ELSE ai_reason END
+     WHERE id=$1 OR duplicate_of=$1`,
+    [requestId, MAX_PLAY_FAILURES],
+  );
+
+// Orden justo: cuando suena una petición, las que llegaron antes y siguen esperando cuentan un aplazamiento más.
+const countDeferrals = (client, venueId, requestId) =>
+  client.query(
+    `UPDATE song_requests p SET passed_count = passed_count + 1 FROM song_requests played
+     WHERE played.id=$2 AND p.establishment_id=$1 AND p.id <> played.id AND p.duplicate_of IS NULL
+       AND p.status IN ('accepted', 'bridging') AND p.created_at < played.created_at
+       AND (p.not_before IS NULL OR p.not_before <= NOW())`,
+    [venueId, requestId],
+  );
 
 // Pasa a la siguiente pista de la cola. endedReason: ended (terminó), user (saltada) o error (no cargó).
 // Una petición solo queda "sonada" cuando sale de la emisora después de sonar (terminó o se saltó);
@@ -126,6 +163,7 @@ const moveToNext = async (client, venueId, state, endedReason, nextStatus = stat
       ],
     );
     if (requestId && PLAYED_REASONS.has(endedReason)) await markRequestPlayed(client, requestId);
+    if (requestId && endedReason === 'error' && autoRequestsReady()) await markRequestFailed(client, requestId);
   }
   const next = (
     await client.query('SELECT * FROM play_queue WHERE establishment_id=$1 ORDER BY position, created_at LIMIT 1 FOR UPDATE', [venueId])
@@ -133,6 +171,7 @@ const moveToNext = async (client, venueId, state, endedReason, nextStatus = stat
   if (next) {
     await client.query('DELETE FROM play_queue WHERE id=$1', [next.id]);
     await renumber(client, venueId);
+    if (next.request_id && autoRequestsReady()) await countDeferrals(client, venueId, next.request_id);
   }
   const meta = next
     ? {
@@ -283,9 +322,59 @@ export const reorderQueue = (venueId, order) =>
 
 export const removeFromQueue = (venueId, itemId) =>
   mutate(venueId, async (client) => {
-    const r = await client.query('DELETE FROM play_queue WHERE id=$1 AND establishment_id=$2', [itemId, venueId]);
+    const r = await client.query('DELETE FROM play_queue WHERE id=$1 AND establishment_id=$2 RETURNING request_id', [itemId, venueId]);
     if (!r.rowCount) throw new AppError(404, 'Esa pista ya no está en la cola.');
     await renumber(client, venueId);
+    // Una petición que el dueño quita de la cola queda descartada (si no, el AutoDJ la volvería a meter).
+    const requestId = r.rows[0].request_id;
+    if (requestId) {
+      const target = hasColumn('song_requests.duplicate_of') ? '(id=$1 OR duplicate_of=$1)' : 'id=$1';
+      await client.query(`UPDATE song_requests SET status='rejected', ai_reason='El DJ la quitó de la cola.' WHERE ${target}`, [requestId]);
+    }
+    return requestId;
+  });
+
+// Reordena la cola con el algoritmo de prioridad (request-priority.js): primero las peticiones, en orden justo,
+// con una pista de la IA cada balanceEvery cuando hay muchas, y al final las demás pistas de la IA.
+// La primera de la cola no se mueve mientras algo suena: la consola ya puede tenerla precargada.
+export const reorderRequests = (venueId, { maxDeferral, balanceEvery }) =>
+  mutate(venueId, async (client, state) => {
+    const queue = await loadQueue(client, venueId);
+    const locked = state.status !== 'stopped' && state.current_track_id && queue.length ? queue[0] : null;
+    const rest = locked ? queue.slice(1) : queue;
+    const current = state.current_track_id
+      ? (await client.query('SELECT * FROM track_cache WHERE id=$1', [state.current_track_id])).rows[0]
+      : null;
+    const requests = rest
+      .filter((row) => row.source === 'request' && row.request_id)
+      .map((row) => ({
+        id: row.queue_id,
+        createdAt: row.request_created_at,
+        votes: row.request_votes,
+        passed: row.request_passed,
+        ownerPriority: row.request_priority,
+        genre: row.genre,
+        energy: row.energy,
+      }));
+    const requestIds = planRequestOrder(requests, { prev: locked ?? current, maxDeferral }).map((r) => r.id);
+    const requestSet = new Set(requestIds);
+    const otherIds = rest.filter((row) => !requestSet.has(row.queue_id)).map((row) => row.queue_id);
+    const order = [...(locked ? [locked.queue_id] : []), ...layoutQueue(requestIds, otherIds, { balanceEvery })];
+    const changed = order.some((id, i) => id !== queue[i].queue_id);
+    if (changed) await applyOrder(client, venueId, order);
+    return changed;
+  });
+
+// Puesto y espera estimada de cada petición en la cola, para la página pública (se recalcula como mucho cada 1,5 s).
+const positionsCache = createMemo({ ttlMs: 1500 });
+export const requestPositions = (venueId) =>
+  positionsCache.get(venueId, async () => {
+    const snap = await playerSnapshot(venueId, { create: false });
+    const positions = new Map();
+    for (const item of snap?.queue ?? []) {
+      if (item.requestId) positions.set(item.requestId, { position: item.position, etaSeconds: item.etaSeconds });
+    }
+    return positions;
   });
 
 // Datos para el AutoDJ: estado, cola actual e historial reciente (ids y artistas) del local.

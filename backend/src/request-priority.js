@@ -107,3 +107,6 @@ export const songKeyOf = (provider, externalId) => (provider && externalId ? `${
 
 // Votos que sube una petición repetida: 1 por persona, sin pasar de un tope razonable.
 export const MAX_VOTES = 999;
+
+// Fallos al reproducir una petición: el primero se reintenta; con el segundo queda "No se pudo reproducir".
+export const MAX_PLAY_FAILURES = 2;
