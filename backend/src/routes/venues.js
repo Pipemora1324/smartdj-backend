@@ -3,7 +3,8 @@ import { query } from '../db.js';
 import { requireSupabaseAuth } from '../supabase-auth.js';
 import { AppError } from '../errors.js';
 import { trackSearchSchema, uuidParam, venuePatchSchema, venueSchema } from '../owner-validation.js';
-import { requirePlayerSchema } from '../schema-check.js';
+import { autoRequestsReady, requirePlayerSchema } from '../schema-check.js';
+import { ensureQueue } from '../autodj.js';
 import { LIMITS, byOwner, createLimiter } from '../rate-limits.js';
 import { searchCatalog } from '../music-catalog.js';
 import { tagsForVenueProfile, toPublicTrack } from '../catalog-logic.js';
@@ -40,11 +41,15 @@ router.patch('/:id', async (req, res, next) => {
     await ownedVenue(req.params.id, req.user.sub);
     const d = venuePatchSchema.parse(req.body);
     if ('exclude_non_commercial' in d) await requirePlayerSchema();
+    if (('auto_accept_requests' in d || 'block_explicit' in d) && !autoRequestsReady())
+      throw new AppError(503, 'Las peticiones automáticas no están listas: falta ejecutar la migración 010_peticiones_automaticas.sql.');
     const keys = Object.keys(d);
     const r = await query(
       `UPDATE establishments SET ${keys.map((k, i) => `${k}=$${i + 3}`).join(',')} WHERE id=$1 AND owner_id=$2 RETURNING *`,
       [req.params.id, req.user.sub, ...keys.map((k) => d[k])],
     );
+    // Al activar "Aceptar peticiones automáticamente", las pendientes entran a la cola sin esperar otro evento.
+    if (d.auto_accept_requests === true) await ensureQueue(r.rows[0]);
     res.json(r.rows[0]);
   } catch (e) {
     next(e);
