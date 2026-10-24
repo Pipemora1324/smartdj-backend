@@ -109,7 +109,10 @@ test('el dueño ve las pendientes, pone una ahora y descarta otra', async () => 
   const b = await ask({ trackId: METAL });
   await waitFor(async () => (await statusRow(b.body.id)).status === 'bridging');
   const pending = await stack.api(`/api/venues/${owner.venue.id}/player/requests`, { token: owner.token });
-  assert.deepEqual(pending.body.requests.map((r) => r.id).sort(), [a.body.id, b.body.id].sort());
+  assert.deepEqual(
+    pending.body.requests.map((r) => r.id).sort((a, b) => a.localeCompare(b)),
+    [a.body.id, b.body.id].sort((a, b) => a.localeCompare(b)),
+  );
 
   const queued = await stack.api(`/api/venues/${owner.venue.id}/player/requests/${a.body.id}/queue`, {
     method: 'POST',

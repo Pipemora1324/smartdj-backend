@@ -244,7 +244,11 @@ test('30 clientes piden a la vez: todas entran, suenan sin duplicados ni pérdid
       [owner.venue.id],
     )
   ).rows;
-  assert.deepEqual([...played.map((p) => p.request_id)].sort(), [...primaries].sort(), 'cada petición sonó una sola vez');
+  assert.deepEqual(
+    [...played.map((p) => p.request_id)].sort((a, b) => a.localeCompare(b)),
+    [...primaries].sort((a, b) => a.localeCompare(b)),
+    'cada petición sonó una sola vez',
+  );
   const statuses = await stack.query('SELECT DISTINCT status FROM song_requests WHERE establishment_id=$1', [owner.venue.id]);
   assert.deepEqual(
     statuses.rows.map((r) => r.status),
