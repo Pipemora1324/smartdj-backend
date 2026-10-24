@@ -1,8 +1,12 @@
 // Resume una corrida de load/run.sh: RPS, latencias, errores, 429, SSE, recursos y llamadas a las APIs simuladas.
 import { readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const dir = process.argv[2];
+// Solo lee y escribe dentro de load/results/<etiqueta>: una ruta de otro lado se rechaza.
+const RESULTS = fileURLToPath(new URL('./results', import.meta.url));
+const dir = resolve(RESULTS, process.argv[2] ?? '');
+if (!dir.startsWith(RESULTS + sep)) throw new Error('La carpeta debe estar dentro de load/results.');
 const read = (name) => {
   try {
     return JSON.parse(readFileSync(join(dir, name), 'utf8'));
@@ -55,4 +59,3 @@ const summary = {
   })(),
 };
 writeFileSync(join(dir, 'resumen.json'), JSON.stringify(summary, null, 2));
-console.log(JSON.stringify(summary, null, 2));

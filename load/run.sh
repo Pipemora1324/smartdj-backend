@@ -43,4 +43,4 @@ docker exec smartdj-load-redis-1 redis-cli info commandstats > out/redis-command
 cp out/summary.json out/sse.json out/fake-calls.json out/redis-commands.txt out/redis-commandstats.txt "$RES/" 2>/dev/null
 compose logs api > "$RES/api.log" 2>&1
 [ "${KEEP:-0}" = 1 ] || compose down -v --remove-orphans >/dev/null 2>&1
-node summarize.mjs "$RES"
+node summarize.mjs "$LABEL" && cat "$RES/resumen.json"

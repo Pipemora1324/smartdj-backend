@@ -2,7 +2,7 @@
 // como 100 celulares con la página abierta, y cuenta conexiones, avisos recibidos y errores.
 import { readFileSync, writeFileSync } from 'node:fs';
 
-const BASE = process.env.BASE_URL || 'http://api:3000';
+const BASE = process.env.BASE_URL || 'http://api:3000'; // NOSONAR: solo red local de Docker (ver abajo)
 if (!/^http:\/\/(api|localhost|127\.0\.0\.1)(:\d+)?$/.test(BASE)) throw new Error('Solo se permite un backend local.');
 const CLIENTS = Number(process.env.SSE_CLIENTS || 100);
 const SECONDS = Number(process.env.SSE_SECONDS || 120);

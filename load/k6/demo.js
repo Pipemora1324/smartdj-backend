@@ -6,7 +6,7 @@ import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Counter } from 'k6/metrics';
 
-const BASE = __ENV.BASE_URL || 'http://api:3000';
+const BASE = __ENV.BASE_URL || 'http://api:3000'; // NOSONAR: solo red local de Docker (ver abajo)
 if (!/^http:\/\/(api|localhost|127\.0\.0\.1)(:\d+)?$/.test(BASE)) throw new Error('Solo se permite un backend local.');
 // CLIENT_ID=1: la página manda su identificador de cliente (X-Client-Id), como el frontend corregido.
 const CLIENT_IDS = __ENV.CLIENT_ID === '1';
