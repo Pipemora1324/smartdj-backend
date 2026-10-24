@@ -135,7 +135,7 @@ const markRequestFailed = (client, requestId) =>
 // Orden justo: cuando suena una petición, las que llegaron antes y siguen esperando cuentan un aplazamiento más.
 const countDeferrals = (client, venueId, requestId) =>
   client.query(
-    `UPDATE song_requests p SET passed_count = passed_count + 1 FROM song_requests played
+    `UPDATE song_requests p SET passed_count = p.passed_count + 1 FROM song_requests played
      WHERE played.id=$2 AND p.establishment_id=$1 AND p.id <> played.id AND p.duplicate_of IS NULL
        AND p.status IN ('accepted', 'bridging') AND p.created_at < played.created_at
        AND (p.not_before IS NULL OR p.not_before <= NOW())`,
