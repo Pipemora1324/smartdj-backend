@@ -57,7 +57,8 @@ const replayNotBefore = async (venueId, trackId) => {
   if (!hasColumn('mix_history.track_id')) return null;
   const r = await query(
     `SELECT MAX(played_at) + make_interval(mins => $3::int) AS not_before FROM mix_history
-     WHERE establishment_id=$1 AND track_id=$2 AND played_at > NOW() - make_interval(mins => $3::int)`,
+     WHERE establishment_id=$1 AND track_id=$2 AND played_at > NOW() - make_interval(mins => $3::int)
+       AND ended_reason IS DISTINCT FROM 'error'`,
     [venueId, trackId, config.requests.replayWaitMinutes],
   );
   return r.rows[0]?.not_before ?? null;
