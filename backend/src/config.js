@@ -62,6 +62,11 @@ const envSchema = z.object({
   JAMENDO_MONTHLY_BUDGET: positiveInt(30000),
   ITUNES_API_URL: z.preprocess(blankToUndefined, serviceUrl.optional()),
   AUDIUS_API_KEY: optionalText,
+  // Peticiones automáticas en AutoDJ (ver DECISIONES_DJ.md).
+  REQUEST_MAX_DEFERRAL: positiveInt(3).refine((n) => n <= 10, 'debe ser como mucho 10'),
+  REQUEST_BALANCE_EVERY: positiveInt(4).refine((n) => n <= 20, 'debe ser como mucho 20'),
+  REQUEST_MAX_PENDING_PER_CLIENT: positiveInt(3).refine((n) => n <= 20, 'debe ser como mucho 20'),
+  REQUEST_REPLAY_WAIT_MINUTES: positiveInt(30).refine((n) => n <= 720, 'debe ser como mucho 720'),
 });
 
 const listFrom = (value) =>
@@ -150,6 +155,14 @@ export const parseConfig = (env) => {
     jamendoMonthlyBudget: e.JAMENDO_MONTHLY_BUDGET,
     // Audius es opcional y la clave solo vive en el servidor.
     audiusApiKey: e.AUDIUS_API_KEY,
+    // Peticiones en AutoDJ: aplazamiento máximo (turnos), una pista de la IA cada N peticiones seguidas,
+    // peticiones pendientes por cliente y espera para repetir una pista que sonó hace poco.
+    requests: {
+      maxDeferral: e.REQUEST_MAX_DEFERRAL,
+      balanceEvery: e.REQUEST_BALANCE_EVERY,
+      maxPendingPerClient: e.REQUEST_MAX_PENDING_PER_CLIENT,
+      replayWaitMinutes: e.REQUEST_REPLAY_WAIT_MINUTES,
+    },
   };
 };
 

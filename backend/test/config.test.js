@@ -109,3 +109,10 @@ test('el pool de Postgres es de 10 por defecto y se limita a 50', () => {
   assert.equal(parseConfig({ ...VALID, DATABASE_POOL_MAX: '15' }).dbPoolMax, 15);
   assert.match(problems({ ...VALID, DATABASE_POOL_MAX: '500' }), /DATABASE_POOL_MAX: debe ser como mucho 50/);
 });
+
+test('las reglas de las peticiones automáticas tienen valores por defecto y topes', () => {
+  assert.deepEqual(parseConfig(VALID).requests, { maxDeferral: 3, balanceEvery: 4, maxPendingPerClient: 3, replayWaitMinutes: 30 });
+  assert.equal(parseConfig({ ...VALID, REQUEST_MAX_DEFERRAL: '5' }).requests.maxDeferral, 5);
+  assert.match(problems({ ...VALID, REQUEST_BALANCE_EVERY: '0' }), /REQUEST_BALANCE_EVERY: debe ser mayor que 0/);
+  assert.match(problems({ ...VALID, REQUEST_MAX_PENDING_PER_CLIENT: '99' }), /como mucho 20/);
+});
