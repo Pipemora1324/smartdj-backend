@@ -8,7 +8,6 @@ import { itunesRequestTrack, trackKind } from './catalog-logic.js';
 import { defaultTransition, previewTransition } from './player-logic.js';
 import { enqueue, moveRequestFirst } from './player.js';
 import { MAX_PLAY_FAILURES, MAX_VOTES } from './request-priority.js';
-import { IP_CEILING_FACTOR } from './rate-limits.js';
 import { config } from './config.js';
 import { logger } from './logger.js';
 
@@ -148,7 +147,9 @@ export const dismissRequest = async (venue, requestId) => {
 export const anonymousKey = (value) => (value ? createHash('sha256').update(`smartdj|${value}`).digest('hex').slice(0, 32) : null);
 
 // Peticiones pendientes por cliente: máximo maxPendingPerClient por navegador y un tope por IP (el Wi-Fi del local)
-// IP_CEILING_FACTOR veces mayor, igual que los límites de uso. Cuentan las que aún no sonaron ni se descartaron.
+// PENDING_IP_FACTOR veces mayor: alcanza para 100 personas en la misma red con todas sus pendientes, y frena a quien
+// invente identificadores. Cuentan las que aún no sonaron ni se descartaron.
+export const PENDING_IP_FACTOR = 100;
 export const checkPendingLimit = async (venueId, { clientKey, ipKey }) => {
   const max = config.requests.maxPendingPerClient;
   const r = await query(
@@ -165,7 +166,7 @@ export const checkPendingLimit = async (venueId, { clientKey, ipKey }) => {
       code: 'too_many_pending',
     });
   }
-  if (ipKey && ip >= max * IP_CEILING_FACTOR) {
+  if (ipKey && ip >= max * PENDING_IP_FACTOR) {
     throw new AppError(429, 'Hay demasiadas peticiones pendientes desde esta red. Espera a que suenen algunas.', {
       code: 'too_many_pending',
     });

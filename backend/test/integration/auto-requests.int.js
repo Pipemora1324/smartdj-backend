@@ -264,10 +264,10 @@ test('30 clientes piden a la vez: todas entran, suenan sin duplicados ni pérdid
 
 test('el tope de pendientes por red frena a quien invente identificadores', async () => {
   const { anonymousKey } = await import('../../src/station-requests.js');
-  // 90 pendientes (3 × 30) desde la misma IP: se cargan directo para no depender de los límites por minuto.
+  // 300 pendientes (3 × 100) desde la misma IP: se cargan directo para no depender de los límites por minuto.
   await stack.query(
     `INSERT INTO song_requests(establishment_id, guest_name, title, artist, genre, status, ip_key)
-     SELECT $1, 'X', 'T' || g, 'A', 'Pop', 'accepted', $2 FROM generate_series(1, 90) g`,
+     SELECT $1, 'X', 'T' || g, 'A', 'Pop', 'accepted', $2 FROM generate_series(1, 300) g`,
     [owner.venue.id, anonymousKey('10.9.0.250')],
   );
   const res = await ask({ trackId: VALIO }, { 'x-forwarded-for': '10.9.0.250', 'x-client-id': 'cliente-nuevo-0001' });
