@@ -62,6 +62,9 @@ export const publishRequestChange = (venueId, requestId, type = 'request_updated
 // Pista que sonó hace poco: la petición entra a la cola, pero no antes de esta hora (null si puede sonar ya).
 const replayNotBefore = async (venueId, trackId) => {
   if (!hasColumn('mix_history.track_id')) return null;
+  // La que suena ahora también cuenta: aún no está en el historial, pero no debe repetirse enseguida.
+  const playing = await query('SELECT 1 FROM player_state WHERE establishment_id=$1 AND current_track_id=$2', [venueId, trackId]);
+  if (playing.rowCount) return new Date(Date.now() + config.requests.replayWaitMinutes * 60 * 1000);
   const r = await query(
     `SELECT MAX(played_at) + make_interval(mins => $3::int) AS not_before FROM mix_history
      WHERE establishment_id=$1 AND track_id=$2 AND played_at > NOW() - make_interval(mins => $3::int)
@@ -149,8 +152,11 @@ export const anonymousKey = (value) => (value ? createHash('sha256').update(`sma
 export const checkPendingLimit = async (venueId, { clientKey, ipKey }) => {
   const max = config.requests.maxPendingPerClient;
   const r = await query(
-    `SELECT COUNT(*) FILTER (WHERE client_key=$2)::int AS client, COUNT(*) FILTER (WHERE ip_key=$3)::int AS ip
-     FROM song_requests WHERE establishment_id=$1 AND status = ANY($4::request_status[]) AND created_at > NOW() - INTERVAL '${PENDING_WINDOW}'`,
+    // Un voto cuenta con el estado de su original (cuando la original suena, el voto deja de estar pendiente).
+    `SELECT COUNT(*) FILTER (WHERE r.client_key=$2)::int AS client, COUNT(*) FILTER (WHERE r.ip_key=$3)::int AS ip
+     FROM song_requests r LEFT JOIN song_requests p ON p.id = r.duplicate_of
+     WHERE r.establishment_id=$1 AND COALESCE(p.status, r.status) = ANY($4::request_status[])
+       AND r.created_at > NOW() - INTERVAL '${PENDING_WINDOW}'`,
     [venueId, clientKey, ipKey, PENDING_STATUSES],
   );
   const { client, ip } = r.rows[0];
