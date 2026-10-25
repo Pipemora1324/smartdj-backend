@@ -189,7 +189,7 @@ npm run format     # Prettier (format:check solo revisa)
 
 | | Antes | Ahora |
 | --- | --- | --- |
-| Backend | 39 % | 94 % (ramas 82 %) |
+| Backend | 39 % | 94,5 % (ramas 84 %; `request-priority.js` 100 %) |
 | Motor | 89 % | 89 % (`autodj.py` 99 %, `engine.py` 96 %) |
 
 **Prueba de carga:** `load/`, solo local. Resultados y límites de los planes gratis en [CARGA.md](CARGA.md).
