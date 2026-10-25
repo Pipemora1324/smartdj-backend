@@ -27,6 +27,8 @@ CREATE INDEX IF NOT EXISTS song_requests_venue_song_pending_idx ON song_requests
 CREATE INDEX IF NOT EXISTS song_requests_venue_client_pending_idx ON song_requests(establishment_id, client_key)
   WHERE status IN ('queued', 'accepted', 'bridging');
 CREATE INDEX IF NOT EXISTS song_requests_duplicate_idx ON song_requests(duplicate_of) WHERE duplicate_of IS NOT NULL;
+-- Una petición ocupa como mucho un lugar en la cola de la emisora.
+CREATE UNIQUE INDEX IF NOT EXISTS play_queue_request_unique_idx ON play_queue(request_id) WHERE request_id IS NOT NULL;
 
 -- Canciones que el dueño bloqueó en su local: nuevas peticiones de ellas se rechazan.
 CREATE TABLE IF NOT EXISTS blocked_songs (
