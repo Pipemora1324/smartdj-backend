@@ -254,3 +254,12 @@ Todo se recalcula solo por eventos (petición evaluada, avanzar, saltar, quitar,
 - Completa `song_key` en las peticiones existentes.
 - Pasa a "aceptada" las que quedaron sin evaluar. Con el interruptor activo, entran a la cola por orden de llegada en el siguiente evento de la emisora.
 - Las pendientes de más de 24 h se consideran vencidas y no entran: es la misma ventana que ya usaba la consola.
+
+### Ajustes que salieron de las pruebas de punta a punta y de carga
+- **Pista que suena:** pedir la canción que está sonando cuenta como "sonó hace poco" y queda en espera; si no, sonaría dos veces seguidas. Si la IA ya la había puesto en la cola, ese lugar pasa a ser de la petición.
+- **Una petición, un lugar:** índice único `play_queue(request_id)` en la 010, como garantía en la base.
+- **Carrera del AutoDJ:** con varias evaluaciones a la vez, si el candado está tomado se deja un aviso (`autodj:again:<local>`) y se intenta tomar el candado otra vez. Quien lo tiene repite la pasada al ver el aviso, así ninguna petición evaluada espera al siguiente evento de la emisora.
+- **Votos:** muestran y cuentan el estado de su original (consulta con `COALESCE`). El worker también actualiza los votos que llegaron durante la evaluación.
+- **"Entrando a la cola":** estado breve de una petición ya evaluada mientras el AutoDJ la mete. El cliente consulta cada 2 s hasta ver su puesto y después cada 10 s.
+- **Tope por red de pendientes:** 3 × 100 = 300, para 100 personas en el mismo Wi-Fi. Empezó en 3 × 30 y la prueba de carga mostró que bloqueaba a 150 personas.
+- **Avisos públicos cada 5 s:** cada petición que entra es un aviso; agrupar cada 5 s en la página pública (2 s en la consola) evita multiplicar las consultas a `/now`. Ver [CARGA.md](CARGA.md).
