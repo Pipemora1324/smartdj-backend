@@ -11,7 +11,14 @@ import { autoRequestsReady, hasColumn } from '../schema-check.js';
 import { playerSnapshot, requestPositions } from '../player.js';
 import { findVenue } from '../venue-lookup.js';
 import { availableProviders, findCachedTrack, searchCatalog } from '../music-catalog.js';
-import { anonymousKey, checkPendingLimit, insertStationRequest, isSongBlocked, requestsByIds } from '../station-requests.js';
+import {
+  anonymousKey,
+  autoAcceptsRequests,
+  checkPendingLimit,
+  insertStationRequest,
+  isSongBlocked,
+  requestsByIds,
+} from '../station-requests.js';
 import { songKeyOf } from '../request-priority.js';
 import { byClient } from '../rate-limits.js';
 import { toStationRequest } from '../player-logic.js';
@@ -303,8 +310,13 @@ router.get('/venues/:code/requests', nowLimiter, async (req, res, next) => {
     const ids = requestIdsSchema.parse(req.query.ids);
     const venue = await findVenue(req.params.code);
     if (!hasColumn('song_requests.track_id')) return res.json({ requests: [] });
-    const positions = hasColumn('player_state.establishment_id') ? await requestPositions(venue.id) : null;
-    res.json({ requests: (await requestsByIds(venue.id, ids)).map((row) => toStationRequest(row, { withGuest: false, positions })) });
+    const live = hasColumn('player_state.establishment_id') ? await requestPositions(venue.id) : null;
+    const autoAccept = live ? autoAcceptsRequests(venue, live.mode) : false;
+    res.json({
+      requests: (await requestsByIds(venue.id, ids)).map((row) =>
+        toStationRequest(row, { withGuest: false, positions: live?.positions, autoAccept }),
+      ),
+    });
   } catch (e) {
     next(e);
   }

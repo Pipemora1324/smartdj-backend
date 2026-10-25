@@ -157,14 +157,11 @@ const requireRequests = () => {
 };
 // Peticiones pendientes con su puesto en la cola y si el local las acepta solas (interruptor de la 010).
 const replyRequests = async (req, res) => {
-  const [rows, positions, state] = await Promise.all([
-    pendingRequests(req.venue.id),
-    requestPositions(req.venue.id, { fresh: true }),
-    playerSnapshot(req.venue.id, { create: false }),
-  ]);
+  const [rows, live] = await Promise.all([pendingRequests(req.venue.id), requestPositions(req.venue.id, { fresh: true })]);
+  const autoAccept = autoAcceptsRequests(req.venue, live.mode);
   res.json({
-    requests: rows.map((row) => toStationRequest(row, { positions })),
-    autoAccept: autoAcceptsRequests(req.venue, state?.mode ?? 'autodj'),
+    requests: rows.map((row) => toStationRequest(row, { positions: live.positions, autoAccept })),
+    autoAccept,
     autoAcceptEnabled: autoRequestsReady() ? req.venue.auto_accept_requests !== false : null,
     blockExplicit: autoRequestsReady() ? Boolean(req.venue.block_explicit) : null,
   });

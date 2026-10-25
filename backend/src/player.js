@@ -370,13 +370,14 @@ export const reorderRequests = (venueId, { maxDeferral, balanceEvery }) =>
 // Puesto y espera estimada de cada petición en la cola, para la página pública (se recalcula como mucho cada 1,5 s).
 // fresh=true (consola del dueño, justo después de un cambio) se salta la caché.
 const positionsCache = createMemo({ ttlMs: 1500 });
+// Devuelve { positions, mode }: el modo dice si las peticiones entran solas (AutoDJ) o las decide el dueño.
 const loadPositions = async (venueId) => {
   const snap = await playerSnapshot(venueId, { create: false });
   const positions = new Map();
   for (const item of snap?.queue ?? []) {
     if (item.requestId) positions.set(item.requestId, { position: item.position, etaSeconds: item.etaSeconds });
   }
-  return positions;
+  return { positions, mode: snap?.mode ?? 'autodj' };
 };
 export const requestPositions = (venueId, { fresh = false } = {}) =>
   fresh ? loadPositions(venueId) : positionsCache.get(venueId, () => loadPositions(venueId));

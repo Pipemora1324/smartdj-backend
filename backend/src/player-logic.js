@@ -112,15 +112,18 @@ export const REQUEST_STATE_LABELS = {
   // Sonó hace poco: ya está aceptada y entra a la cola sola al terminar la espera.
   waiting: 'En la cola',
   unplayable: 'No se pudo reproducir',
+  // Evaluada y con "Aceptar peticiones automáticamente": el AutoDJ la está metiendo a la cola.
+  entering: 'Entrando a la cola',
 };
 // Fallos de reproducción con los que una petición se da por perdida (ver request-priority.js).
 const UNPLAYABLE_FAILURES = 2;
-export const requestState = (row, now = Date.now()) => {
+export const requestState = (row, now = Date.now(), autoAccept = false) => {
   if (row.status === 'played') return 'played';
   if (row.status === 'rejected') return (Number(row.play_failures) || 0) >= UNPLAYABLE_FAILURES ? 'unplayable' : 'rejected';
   if (row.playing) return 'playing';
   if (row.in_queue) return 'in_queue';
   if (row.not_before && new Date(row.not_before).getTime() > now) return 'waiting';
+  if (autoAccept && (row.status === 'accepted' || row.status === 'bridging')) return 'entering';
   return row.status;
 };
 // Completa (pista de Jamendo, también si una petición de iTunes se encontró completa) o preview de 30 s.
@@ -130,8 +133,8 @@ export const requestKind = (row) => {
 };
 // withGuest=false para la página pública: nunca expone el nombre de quien pidió.
 // positions: Map de la petición original → { position, etaSeconds } en la cola (los votos usan la de la original).
-export const toStationRequest = (row, { withGuest = true, positions = null, now = Date.now() } = {}) => {
-  const state = requestState(row, now);
+export const toStationRequest = (row, { withGuest = true, positions = null, now = Date.now(), autoAccept = false } = {}) => {
+  const state = requestState(row, now, autoAccept);
   const kind = requestKind(row);
   const queued = positions?.get(row.duplicate_of ?? row.id);
   const waitUntil = state === 'waiting' ? new Date(row.not_before).toISOString() : null;

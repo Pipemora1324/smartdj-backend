@@ -118,5 +118,8 @@ test('estados de las peticiones automáticas: puesto, espera, votos y fallos', a
   assert.equal(toStationRequest({ ...base, status: 'rejected', play_failures: 2 }).stateLabel, 'No se pudo reproducir');
   assert.equal(toStationRequest({ ...base, status: 'rejected', play_failures: 1 }).stateLabel, 'Descartada');
   assert.equal(toStationRequest(base).stateLabel, 'Esperando al DJ');
+  // Con peticiones automáticas, una evaluada que aún no está en la cola ya va entrando.
+  assert.equal(toStationRequest({ ...base, status: 'bridging' }, { autoAccept: true }).stateLabel, 'Entrando a la cola');
+  assert.equal(toStationRequest({ ...base, in_queue: true }, { autoAccept: true }).state, 'in_queue');
   assert.equal(toStationRequest({ ...base, votes: undefined }).votes, 1);
 });
