@@ -300,3 +300,16 @@ test('dos peticiones distintas que suenan con la misma pista quedan como una sol
   assert.equal(items.length, 1);
   assert.equal(items[0].votes, 2);
 });
+
+test('un voto que llega mientras se evalúa la original toma su resultado y no queda pendiente', async () => {
+  await player();
+  const [first, second] = await Promise.all([ask({ trackId: VALIO }), ask({ trackId: VALIO })]);
+  const vote = first.body.duplicate ? first : second;
+  const original = first.body.duplicate ? second : first;
+  await inQueue(original.body.id);
+  const [voteRow, originalRow] = await Promise.all([requestRow(vote.body.id), requestRow(original.body.id)]);
+  assert.equal(voteRow.status, originalRow.status, 'el voto no se queda "En evaluación"');
+  const [state] = (await mine([vote.body.id])).body.requests;
+  assert.equal(state.state, 'in_queue');
+  assert.equal(state.votes, 2);
+});
