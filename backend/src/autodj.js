@@ -192,10 +192,12 @@ export const ensureQueue = async (venue) => {
   const againKey = `autodj:again:${venue.id}`;
   const token = randomUUID();
   // Si Redis no responde se sigue sin candado: la transacción de enqueue protege la cola igual.
-  const locked = await redis.set(lockKey, token, 'EX', LOCK_SECONDS, 'NX').catch(() => 'OK');
-  if (!locked) {
+  const takeLock = () => redis.set(lockKey, token, 'EX', LOCK_SECONDS, 'NX').catch(() => 'OK');
+  if (!(await takeLock())) {
     await redis.set(againKey, '1', 'EX', LOCK_SECONDS).catch(() => {});
-    return 0;
+    // Si quien tenía el candado ya lo soltó (y ya miró el aviso), nadie vería este aviso: se intenta de nuevo.
+    // Si sigue tomado, quien lo tiene lo verá al soltarlo.
+    if (!(await takeLock())) return 0;
   }
   let added = 0;
   try {
