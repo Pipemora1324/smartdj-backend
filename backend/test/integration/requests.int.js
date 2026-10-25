@@ -208,7 +208,7 @@ test('una ráfaga de avisos llega agrupada: el primero enseguida y uno al final'
       }
     },
     until: (evs) => evs.filter((e) => e.event === 'update').length >= 2,
-    timeoutMs: 5000,
+    timeoutMs: 9000,
   });
   assert.equal(events.filter((e) => e.event === 'update').length, 2);
 });

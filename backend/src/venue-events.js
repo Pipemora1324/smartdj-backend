@@ -10,7 +10,9 @@ export const MAX_LISTENERS = 500;
 export const PUBLIC_EVENT_TYPES = new Set(['player_updated', 'request_updated']);
 // Como mucho un aviso por local cada AGGREGATE_MS: el primero sale enseguida y los que llegan en esa ventana se
 // juntan en uno solo al final (con 150 personas conectadas, cada aviso son 150 consultas a /now).
-export const AGGREGATE_MS = 2000;
+// La página pública agrupa cada 5 s (con peticiones automáticas cada una que entra a la cola es un aviso);
+// la consola, cada 2 s, porque el dueño necesita ver las peticiones casi al instante.
+export const AGGREGATE_MS = { public: 5000, console: 2000 };
 
 const hub = createLiveHub({
   prefix: 'venue:',
@@ -21,7 +23,7 @@ const hub = createLiveHub({
 
 // Agrupa los avisos de cada local y vista antes de repartirlos a sus oyentes.
 const venues = new Map();
-const aggregated = (key, types) => {
+const aggregated = (key, types, windowMs) => {
   let venue = venues.get(key);
   if (venue) return venue;
   venue = { listeners: new Set(), timer: null, pending: null, stop: null, starting: null };
@@ -43,7 +45,7 @@ const aggregated = (key, types) => {
         venue.pending = null;
         deliver(next);
         wait();
-      }, AGGREGATE_MS);
+      }, windowMs);
       venue.timer.unref?.();
     };
     wait();
@@ -59,7 +61,7 @@ let total = 0;
 export const listenVenue = async (venueId, listener, { view = 'public' } = {}) => {
   if (total >= MAX_LISTENERS) return null;
   const key = `${venueId}|${view}`;
-  const venue = aggregated(key, view === 'console' ? null : PUBLIC_EVENT_TYPES);
+  const venue = aggregated(key, view === 'console' ? null : PUBLIC_EVENT_TYPES, AGGREGATE_MS[view] ?? AGGREGATE_MS.public);
   // Una sola suscripción por local aunque lleguen varias conexiones a la vez.
   venue.starting ??= hub.listen(venueId, venue.onEvent);
   try {
