@@ -47,11 +47,19 @@ flowchart LR
 
 **Petición del público** (sin cuenta):
 1. Busca una canción. Primero aparecen pistas **completas** de Jamendo; si hay menos de 5, se completan con **previews de 30 s** de iTunes.
-2. `POST /api/public/venues/:code/requests` guarda la petición y la encola en BullMQ.
+2. `POST /api/public/venues/:code/requests` revisa las reglas y guarda la petición:
+   - Canción bloqueada por el dueño o letra explícita, si el local las filtra.
+   - Máximo 3 pendientes por navegador y 300 por red.
+   - Si la misma canción ya está pendiente, **suma un voto** y no se duplica. Si no, la encola en BullMQ.
 3. El worker la manda al motor por gRPC (`StreamEvaluation`). Cada etapa (género, BPM, tonalidad, resultado) se publica en Redis y llega al navegador por SSE (`GET /api/public/requests/:id/events`), o por polling si el SSE falla.
 4. El motor compara contra lo que suena en la emisora o, si está detenida, contra el ambiente del local.
-5. En **AutoDJ**, si encaja, se intercala sola en la cola usando su versión completa en Jamendo o, si no existe, el corte de 30 s.
-6. Si no encaja, decide el dueño desde la consola.
+5. En **AutoDJ**, con "Aceptar peticiones automáticamente" (activo por defecto), **toda petición válida entra sola a la cola**, encaje o no. Suena con su versión completa en Jamendo o, si no existe, como corte de 30 s.
+6. La IA decide el orden y el momento: peticiones primero, por orden de llegada, con un ajuste suave por votos, transición y prioridad del dueño.
+   - Ninguna se aplaza más de 3 turnos.
+   - Con muchas pendientes, va una pista de la IA cada 4 peticiones.
+   - El algoritmo está en [DECISIONES_DJ.md](DECISIONES_DJ.md#peticiones-automáticas-en-autodj-2026-10-24).
+7. El cliente ve su estado en vivo: En evaluación → En la cola ("Vas en el puesto 3, suena en unos 9 min") → Sonando ahora → Sonada. También puede ver Descartada o No se pudo reproducir.
+8. Con el interruptor apagado o en modo Manual, decide el dueño desde la consola.
 
 ```
  Navegador                 API (Node)                               Motor (Python)
@@ -59,7 +67,7 @@ flowchart LR
                          worker ── StreamEvaluation (gRPC) ──────▶  QUEUED
                                 ◀─ un evento por etapa ───────────  ANALYZING_GENRE / BPM / KEY
  SSE .../events     ◀─  publica cada etapa en Redis                 RESULT
-                         guarda el resultado en Postgres; si encaja, AutoDJ la intercala
+                         guarda el resultado; en AutoDJ entra sola a la cola y se ordena (request-priority.js)
 ```
 
 **Emisora del dueño** (consola, con sesión de Supabase):
@@ -102,7 +110,9 @@ Todas las respuestas de error son `{ "error": "<mensaje en español>", "code": "
 | `GET/PATCH /api/venues/:id/player` | Estado de la emisora; volumen, modo (`autodj`/`manual`) y crossfade |
 | `POST .../player/claim`, `/play`, `/pause`, `/skip`, `/advance` | Control de la emisora (una sola consola a la vez; `advance` es idempotente) |
 | `POST/PATCH .../player/queue`, `DELETE .../player/queue/:itemId` | Agregar, reordenar y quitar de la cola |
-| `GET .../player/requests`, `POST .../requests/:id/queue`, `/dismiss` | Peticiones pendientes: ponerlas en la cola o descartarlas |
+| `GET .../player/requests`, `POST .../requests/:id/queue`, `/dismiss` | Peticiones pendientes con puesto y espera: ponerlas en la cola o descartarlas |
+| `POST .../player/requests/:id/priority` (`{delta: 1 \| -1}`), `/block` | Subir o bajar una petición en el orden; bloquear la canción en el local |
+| `PATCH /api/venues/:id` con `auto_accept_requests`, `block_explicit` | Interruptor "Aceptar peticiones automáticamente" y filtro de letra explícita (migración 010) |
 
 ## Ejecutar en local
 
@@ -120,7 +130,7 @@ Requiere Docker con Docker Compose.
 
 **Migraciones** (`database/migrations/`, se pueden ejecutar más de una vez):
 - **En Docker local** se aplican solas al crear el volumen de Postgres.
-- **En Supabase** se pegan en orden (001 a 008) en el SQL Editor.
+- **En Supabase** se pegan en orden (001 a 008 y luego 010) en el SQL Editor. La 010 activa las peticiones automáticas; sin ella, la emisora sigue como antes.
 - La **009** (`009_limpieza_opcional.sql`) borra tablas y columnas de la autenticación anterior. Es **opcional** y está pensada para **ejecutarla a mano solo tras confirmar** que no se usan. No se monta en ningún compose.
 
 ## Variables de entorno
@@ -142,6 +152,10 @@ Al arrancar, `backend/src/config.js` valida todas las variables. Si falta alguna
 | `JAMENDO_CLIENT_ID` | Para la emisora | Client ID de [Jamendo](https://devportal.jamendo.com). Sin él, el catálogo avisa que no está configurado |
 | `JAMENDO_MONTHLY_BUDGET` | No (30000) | Tope de consultas a Jamendo por mes; al llegar se usa solo el caché |
 | `AUDIUS_API_KEY` | No | Segundo proveedor, opcional. Solo en el servidor |
+| `REQUEST_MAX_DEFERRAL` | No (3) | Turnos que una petición puede ser adelantada por otras que llegaron después |
+| `REQUEST_BALANCE_EVERY` | No (4) | Con muchas pendientes, una pista de la IA cada N peticiones seguidas |
+| `REQUEST_MAX_PENDING_PER_CLIENT` | No (3) | Peticiones pendientes por navegador (por red: ×100) |
+| `REQUEST_REPLAY_WAIT_MINUTES` | No (30) | Espera para volver a sonar una pista que sonó hace poco |
 | `LOG_LEVEL` | No (info) | `debug`, `info`, `warn`, `error` o `silent` |
 | `MUSIC_SEARCH_COUNTRY` | No (CO) | País de la tienda de iTunes |
 | `JAMENDO_API_URL`, `ITUNES_API_URL` | No | Solo para pruebas con dobles locales (https, o http en localhost) |
@@ -191,7 +205,7 @@ El contenedor arranca el motor (gRPC y HTTP solo en `127.0.0.1`) y después la A
 **Variables en Render:** `DATABASE_URL`, `REDIS_URL`, `SUPABASE_URL`, `SUPABASE_JWKS_URL` y `JAMENDO_CLIENT_ID`. Opcionales: `CORS_ORIGIN`, `DATABASE_POOL_MAX` y `JAMENDO_MONTHLY_BUDGET`.
 
 **Supabase:**
-- Migraciones 001–008 en el SQL Editor (la 009 es opcional).
+- Migraciones 001–008 y 010 en el SQL Editor (la 009 es opcional y se corre a mano solo tras confirmar).
 - Auth configurado según [SUPABASE_AUTH.md](SUPABASE_AUTH.md).
 
 **Upstash:** una base Redis; su URL va en `REDIS_URL`.
