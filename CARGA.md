@@ -142,3 +142,49 @@ Además se encontró y corrigió un bug con las pruebas de integración: en la *
   - Solo el tope por IP (×30) sería compartido.
 
 Fuentes de los límites: [Render, instancias](https://render.com/docs/free), [Supabase, cómputo y conexiones](https://supabase.com/docs/guides/platform/compute-and-disk), [Upstash, precios](https://upstash.com/docs/redis/overall/pricing).
+
+## Peticiones automáticas (2026-10-24)
+
+Mismo escenario (150 usuarios, 100 SSE, 512 MB) con el flujo nuevo: toda petición entra sola a la cola en AutoDJ, las repetidas suman votos y el orden lo decide `request-priority.js`.
+
+| | Antes (1 CPU) | Ahora (1 CPU) | Antes (0,1 CPU) | Ahora (0,1 CPU) |
+| --- | --- | --- | --- | --- |
+| RPS | 26,2 | 26,4 | 13,1 | 22,4 |
+| p50 / p95 / p99 | 3 / 760 / 765 ms | 3 / 10 / 27 ms | 1,6 / 16,9 / 21,3 s | 198 ms / 3,5 / 5,5 s |
+| Fallidas | 0 % | 0,4 % | 0,2 % | 0,4 % |
+| Respuestas 429 | 0 | 17 | 0 | 13 |
+| Respuestas 5xx | 0 | 0 | 0 | 0 |
+| Checks del público | 100 % | 99,1 % | 99,6 % | 99,2 % |
+| Memoria máxima | 104 MiB | 108 MiB | 113 MiB | 107 MiB |
+| Clientes de Redis / conexiones a Postgres | 6 / 11 | 6 / 11 | 6 / 11 | 6 / 11 |
+| Comandos de Redis | 33.873 | 3.894 | — | 3.324 |
+
+**Lectura:**
+- **Más rápido, sobre todo en Render gratis.**
+  - Las peticiones repetidas ya no se evalúan otra vez (son votos), así que hay muchas menos evaluaciones del motor y muchos menos trabajos de BullMQ.
+  - De ahí la baja de comandos de Redis: unos 3.900 por demo, frente a 33.900.
+  - El p95 bajó de 760 ms a 10 ms porque casi ningún resultado tiene que esperar las etapas del motor.
+  - Depende del escenario: en k6 las personas eligen entre pocas canciones, así que hay muchos votos. Con canciones distintas para cada una, se vuelve a los números anteriores.
+- **Los 429 son el tope de pendientes por red, y es lo esperado.**
+  - El escenario acumula ~300 pedidos en 2 minutos desde la misma IP, mientras la emisora solo alcanza a sonar unas pocas canciones.
+  - El tope es de 300 pendientes por red: 100 personas con sus 3 pendientes cada una, unas 15 horas de música.
+  - Pasado eso, la persona ve "Hay demasiadas peticiones pendientes desde esta red".
+- **Avisos del local:** cada petición que entra a la cola es un aviso. Por eso la página pública los agrupa cada 5 s (la consola, cada 2 s).
+  - Con 100 celulares: ~2.500 avisos y ~2.500 consultas a `/now` en 2 minutos.
+  - Es poco costo gracias a la microcaché de `/now` (p95 de 5 ms a 1 CPU).
+
+**Corregido durante esta prueba:** el tope de pendientes por red empezó en 90 (3 × 30) y bloqueaba a 150 personas en el mismo Wi-Fi (250 respuestas 429). Subió a 300 (3 × 100).
+
+**Prueba de punta a punta en navegador** (30 navegadores independientes en la misma IP, motor real):
+
+| Resultado | Cifra |
+| --- | --- |
+| Canciones distintas / votos | 8 / 30 |
+| Clientes que ven su estado ("Vas en el puesto 4, suena en unos 9 min", "Sonó hace poco: vuelve a sonar en unos 30 min") | los 30 |
+| Pistas repetidas en la cola | 0 |
+| Peticiones perdidas | 0 |
+| Peticiones que sonaron | todas, salvo la de la canción que estaba sonando, que espera |
+
+Esta prueba encontró y corrigió dos carreras:
+- Una petición evaluada mientras otro proceso rellenaba la cola esperaba al siguiente evento de la emisora.
+- Un voto creado mientras se evaluaba la original quedaba "En evaluación".
