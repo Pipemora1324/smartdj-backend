@@ -116,3 +116,14 @@ El health responde porque Render conserva la instancia vieja cuando un despliegu
    Siguen siendo obligatorias: `DATABASE_URL`, `REDIS_URL`, `SUPABASE_URL`, `SUPABASE_JWKS_URL` (o `SUPABASE_JWT_SECRET` de al menos 32 caracteres) y `AI_SERVICE_URL` (la imagen combinada ya la define).
 
 **Compatibilidad mientras tanto:** el frontend ya subido funciona con el backend viejo. La cabecera `X-Client-Id` pasa el CORS y `?client=` / `?view=console` se ignoran. No se rompe nada; solo faltan las mejoras del backend.
+
+**Actualización 2026-10-25:** resuelto. Render ya publica el backend nuevo: `POST /api/auth/login` responde 404, como corresponde a la versión sin la auth propia.
+
+## 9. Peticiones automáticas en AutoDJ (2026-10-25)
+
+- **SQL (Supabase, SQL Editor):** `database/migrations/010_peticiones_automaticas.sql`, después de la 006 y la 008 (ya aplicadas).
+  - Es idempotente.
+  - Sin ella, la emisora sigue como antes: el dueño decide qué peticiones entran.
+  - **No ejecutar la 009** como parte de esto: sigue siendo opcional y manual.
+- **Render (opcional):** `REQUEST_MAX_DEFERRAL` (3), `REQUEST_BALANCE_EVERY` (4), `REQUEST_MAX_PENDING_PER_CLIENT` (3) y `REQUEST_REPLAY_WAIT_MINUTES` (30). Con los valores por defecto no hace falta definirlas.
+- **Vercel:** nada que configurar.
