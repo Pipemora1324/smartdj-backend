@@ -132,66 +132,86 @@ const interleaveRequests = async (venue, queue, recentIds, requests) => {
   return added;
 };
 
+// Una pasada del AutoDJ: mete las peticiones listas, completa con pistas de la IA y reordena. Devuelve cuántas agregó.
+const fillQueue = async (venue) => {
+  let added = 0;
+  let { state, queue, recent } = await autodjContext(venue.id, RECENT_LIMIT);
+  if (!state || state.mode !== 'autodj') return 0;
+  const requests = hasColumn('song_requests.track_id') ? await pendingRequests(venue.id) : [];
+  // Con "Aceptar peticiones automáticamente" (010) toda petición lista entra a la cola y luego se ordena.
+  // Con el interruptor apagado decide el dueño. Sin la 010 se mantiene el intercalado anterior (solo las que encajan).
+  const auto = autoAcceptsRequests(venue, state.mode);
+  if (auto) added += await autoQueueRequests(venue, requests);
+  else if (!autoRequestsReady()) added += await interleaveRequests(venue, queue, new Set(recent.map((r) => r.track_id)), requests);
+  if (added) ({ state, queue, recent } = await autodjContext(venue.id, RECENT_LIMIT));
+  const requestCount = queue.filter((q) => q.source === 'request').length;
+  const picksNeeded = auto
+    ? Math.min(
+        MAX_AI_PICKS,
+        aiTracksNeeded(requestCount, { minQueue: MIN_QUEUE, balanceEvery: config.requests.balanceEvery }) - (queue.length - requestCount),
+      )
+    : MIN_QUEUE - queue.length;
+  if (picksNeeded <= 0) {
+    if (auto) await reorderRequests(venue.id, config.requests);
+    return added;
+  }
+  const hints = requestHints(requests);
+  const tags = [...new Set([...hints.genres.flatMap(tagsForGenre), ...tagsForVenueProfile(venue)])];
+  // Las pistas de peticiones pendientes no son candidatas: deben sonar como petición (y quedar "sonadas").
+  const exclude = [state.track?.id, ...queue.map((q) => q.id), ...requests.map((r) => r.track_id)].filter(Boolean);
+  let candidates = await loadCandidates(venue, tags, exclude);
+  const recentIds = [...recent.map((r) => r.track_id), ...exclude];
+  const recentArtists = [...queue.map((q) => q.artist).reverse(), state.track?.artist, ...recent.map((r) => r.artist)];
+  let current = queue.at(-1) ?? state.track ?? null;
+  for (let i = 0; i < picksNeeded && candidates.length; i += 1) {
+    const pick = await choose(venue, current, candidates, recentIds, recentArtists, state.crossfade_seconds, hints);
+    if (!pick) break;
+    await enqueue(venue.id, pick.track, {
+      source: 'autodj',
+      score: pick.score,
+      reason: pick.reason,
+      transitionAtSeconds: pick.transitionAtSeconds,
+      crossfadeSeconds: pick.crossfadeSeconds,
+    });
+    added += 1;
+    candidates = candidates.filter((c) => c.id !== pick.track.id);
+    recentIds.push(pick.track.id);
+    recentArtists.unshift(pick.track.artist);
+    current = pick.track;
+  }
+  if (auto) await reorderRequests(venue.id, config.requests);
+  return added;
+};
+
 // Rellena la cola del local. Nunca lanza: un fallo del AutoDJ no debe romper la acción que lo disparó.
+// Si otro proceso ya está rellenando (candado), se le pide una pasada más: así una petición evaluada mientras
+// tanto entra enseguida y no espera al siguiente evento de la emisora.
+const MAX_PASSES = 5;
 export const ensureQueue = async (venue) => {
   const lockKey = `autodj:lock:${venue.id}`;
+  const againKey = `autodj:again:${venue.id}`;
   const token = randomUUID();
   // Si Redis no responde se sigue sin candado: la transacción de enqueue protege la cola igual.
   const locked = await redis.set(lockKey, token, 'EX', LOCK_SECONDS, 'NX').catch(() => 'OK');
-  if (!locked) return 0;
+  if (!locked) {
+    await redis.set(againKey, '1', 'EX', LOCK_SECONDS).catch(() => {});
+    return 0;
+  }
   let added = 0;
   try {
-    let { state, queue, recent } = await autodjContext(venue.id, RECENT_LIMIT);
-    if (!state || state.mode !== 'autodj') return 0;
-    const requests = hasColumn('song_requests.track_id') ? await pendingRequests(venue.id) : [];
-    // Con "Aceptar peticiones automáticamente" (010) toda petición lista entra a la cola y luego se ordena.
-    // Con el interruptor apagado decide el dueño. Sin la 010 se mantiene el intercalado anterior (solo las que encajan).
-    const auto = autoAcceptsRequests(venue, state.mode);
-    if (auto) added += await autoQueueRequests(venue, requests);
-    else if (!autoRequestsReady()) added += await interleaveRequests(venue, queue, new Set(recent.map((r) => r.track_id)), requests);
-    if (added) ({ state, queue, recent } = await autodjContext(venue.id, RECENT_LIMIT));
-    const requestCount = queue.filter((q) => q.source === 'request').length;
-    const picksNeeded = auto
-      ? Math.min(
-          MAX_AI_PICKS,
-          aiTracksNeeded(requestCount, { minQueue: MIN_QUEUE, balanceEvery: config.requests.balanceEvery }) - (queue.length - requestCount),
-        )
-      : MIN_QUEUE - queue.length;
-    if (picksNeeded <= 0) {
-      if (auto) await reorderRequests(venue.id, config.requests);
-      return added;
+    for (let pass = 0; pass < MAX_PASSES; pass += 1) {
+      await redis.del(againKey).catch(() => {});
+      added += await fillQueue(venue);
+      if (!(await redis.exists(againKey).catch(() => 0))) break;
     }
-    const hints = requestHints(requests);
-    const tags = [...new Set([...hints.genres.flatMap(tagsForGenre), ...tagsForVenueProfile(venue)])];
-    // Las pistas de peticiones pendientes no son candidatas: deben sonar como petición (y quedar "sonadas").
-    const exclude = [state.track?.id, ...queue.map((q) => q.id), ...requests.map((r) => r.track_id)].filter(Boolean);
-    let candidates = await loadCandidates(venue, tags, exclude);
-    const recentIds = [...recent.map((r) => r.track_id), ...exclude];
-    const recentArtists = [...queue.map((q) => q.artist).reverse(), state.track?.artist, ...recent.map((r) => r.artist)];
-    let current = queue.at(-1) ?? state.track ?? null;
-    for (let i = 0; i < picksNeeded && candidates.length; i += 1) {
-      const pick = await choose(venue, current, candidates, recentIds, recentArtists, state.crossfade_seconds, hints);
-      if (!pick) break;
-      await enqueue(venue.id, pick.track, {
-        source: 'autodj',
-        score: pick.score,
-        reason: pick.reason,
-        transitionAtSeconds: pick.transitionAtSeconds,
-        crossfadeSeconds: pick.crossfadeSeconds,
-      });
-      added += 1;
-      candidates = candidates.filter((c) => c.id !== pick.track.id);
-      recentIds.push(pick.track.id);
-      recentArtists.unshift(pick.track.artist);
-      current = pick.track;
-    }
-    if (auto) await reorderRequests(venue.id, config.requests);
   } catch (err) {
     logger.error('El AutoDJ no pudo rellenar la cola', { venueId: venue.id, err });
   } finally {
     const owner = await redis.get(lockKey).catch(() => null);
     if (owner === token) await redis.del(lockKey).catch(() => {});
   }
+  // Un pedido de pasada que llegó justo al soltar el candado no se pierde.
+  if (await redis.exists(againKey).catch(() => 0)) added += await ensureQueue(venue);
   return added;
 };
 
