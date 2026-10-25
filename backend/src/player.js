@@ -44,6 +44,7 @@ const toQueueItem = (row, options, eta) => ({
   source: row.source,
   requestId: row.request_id,
   votes: row.request_votes ?? (row.request_id ? 1 : null),
+  requestedBy: row.request_guest ?? null,
   score: row.score,
   reason: row.reason,
   transitionAtSeconds: num(row.transition_at_seconds),
@@ -85,7 +86,8 @@ export const playerSnapshot = async (venueId, { withAudio = true, queueLimit = 1
           startedAt: state.started_at,
         }
       : null,
-    queue: withAudio ? items : items.map(({ requestId: _r, ...item }) => item),
+    // La página pública no ve ids de petición ni quién pidió.
+    queue: withAudio ? items : items.map(({ requestId: _r, requestedBy: _g, ...item }) => item),
     ...(withAudio ? { consoleId: state.console_id } : {}),
   };
 };

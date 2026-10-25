@@ -139,7 +139,7 @@ test('la página pública muestra lo que suena sin datos internos', async () => 
   assert.ok(now.body.nowPlaying.credit.url);
   assert.equal(now.body.queue.length, 4);
   const text = JSON.stringify(now.body);
-  for (const secret of ['audioUrl', 'consoleId', 'requestId', 'owner_id']) assert.ok(!text.includes(secret), secret);
+  for (const secret of ['audioUrl', 'consoleId', 'requestId', 'owner_id', 'requestedBy']) assert.ok(!text.includes(secret), secret);
 });
 
 test('si otro proceso tiene el candado del AutoDJ, no se duplica el trabajo', async () => {
