@@ -46,6 +46,12 @@ Plataforma para locales (cafeterías, restaurantes, bares). El dueño crea cuent
   - "Sonada" la marca solo `player.js` cuando la petición sale de la emisora después de sonar. **Nunca la marques a mano.**
   - El AutoDJ intercala las que el motor aceptó (máximo dos en cola) y pasa los géneros y artistas pedidos a `SuggestNext`.
   - Los previews de iTunes nunca son candidatas del AutoDJ.
+- **Peticiones automáticas (010):**
+  - En AutoDJ, con `auto_accept_requests`, toda petición válida entra sola a la cola. La IA decide solo el orden (`request-priority.js`, lógica pura y probada), nunca si entra.
+  - Respeta siempre el límite de aplazamiento (`REQUEST_MAX_DEFERRAL`) y no muevas la primera de la cola mientras algo suena.
+  - Las repetidas son votos (`duplicate_of`). Cualquier cambio de estado de una petición debe aplicarse también a sus votos.
+  - El AutoDJ se dispara solo por eventos. Con el candado tomado deja el aviso `autodj:again:<local>`: no lo quites.
+  - Sin la 010 (`autoRequestsReady()`), todo se comporta como antes.
 
 ## Reglas fijas
 
