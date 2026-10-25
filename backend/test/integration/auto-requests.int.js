@@ -313,3 +313,16 @@ test('un voto que llega mientras se evalúa la original toma su resultado y no q
   assert.equal(state.state, 'in_queue');
   assert.equal(state.votes, 2);
 });
+
+test('pedir la canción que está sonando la deja en espera, no se repite enseguida', async () => {
+  await player();
+  const playing = (await player('/play', { method: 'POST', body: {} })).body.current.track;
+  const res = await ask({ provider: playing.provider, externalId: playing.externalId });
+  const [state] = await waitFor(async () => {
+    const requests = (await mine([res.body.id])).body.requests;
+    return requests[0]?.state === 'waiting' && requests;
+  });
+  assert.equal(state.stateLabel, 'En la cola');
+  assert.match(state.waitUntil, /^\d{4}-/);
+  assert.ok(!(await queueOf()).some((q) => q.requestId === res.body.id));
+});
