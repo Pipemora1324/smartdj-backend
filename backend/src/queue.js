@@ -73,7 +73,9 @@ const worker = new Worker(
     const ai = grpcEnabled()
       ? await streamEvaluation(item.id, request, (event) => publishRequestEvent(item.id, toLiveEvent(event)))
       : await evaluateOverHttp(item.id, request);
-    await query('UPDATE song_requests SET status=$1, ai_reason=$2, bridge_sequence=$3, evaluated_at=NOW() WHERE id=$4', [
+    // Los votos que llegaron mientras se evaluaba toman el mismo resultado.
+    const target = hasColumn('song_requests.duplicate_of') ? '(id=$4 OR duplicate_of=$4)' : 'id=$4';
+    await query(`UPDATE song_requests SET status=$1, ai_reason=$2, bridge_sequence=$3, evaluated_at=NOW() WHERE ${target}`, [
       ai.accepted ? 'accepted' : 'bridging',
       ai.reason,
       JSON.stringify(ai.bridge_sequence),
@@ -104,7 +106,7 @@ export const closeQueue = async () => {
 const NO_EVALUATION_REASON = 'El motor no respondió a tiempo: tu petición entra igual a la cola.';
 const enterWithoutEvaluation = async (requestId) => {
   const r = await query(
-    "UPDATE song_requests SET status='accepted', ai_reason=$2, evaluated_at=NOW() WHERE id=$1 AND status='queued' RETURNING establishment_id",
+    "UPDATE song_requests SET status='accepted', ai_reason=$2, evaluated_at=NOW() WHERE (id=$1 OR duplicate_of=$1) AND status='queued' RETURNING establishment_id",
     [requestId, NO_EVALUATION_REASON],
   );
   await publishRequestEvent(requestId, {

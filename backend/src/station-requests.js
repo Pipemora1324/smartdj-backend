@@ -19,10 +19,17 @@ const PENDING_WINDOW = '24 hours';
 
 // Una petición repetida (voto) muestra el estado de la original: en la cola, sonando, etc.
 const primaryId = () => (hasColumn('song_requests.duplicate_of') ? 'COALESCE(r.duplicate_of, r.id)' : 'r.id');
-const requestSql = () => `SELECT r.*, t.provider AS track_provider, t.genre AS track_genre, t.energy AS track_energy,
+// Un voto se muestra con el estado, la espera, los votos y los fallos de su original.
+const primaryFields = () =>
+  hasColumn('song_requests.duplicate_of')
+    ? `, COALESCE(p.status, r.status) AS status, COALESCE(p.not_before, r.not_before) AS not_before,
+      COALESCE(p.votes, r.votes) AS votes, COALESCE(p.play_failures, r.play_failures) AS play_failures`
+    : '';
+const requestSql = () => `SELECT r.*${primaryFields()}, t.provider AS track_provider, t.genre AS track_genre, t.energy AS track_energy,
     EXISTS (SELECT 1 FROM play_queue q WHERE q.request_id = ${primaryId()}) AS in_queue,
     COALESCE(s.current_meta ->> 'requestId' = (${primaryId()})::text, FALSE) AS playing
   FROM song_requests r
+  ${hasColumn('song_requests.duplicate_of') ? 'LEFT JOIN song_requests p ON p.id = r.duplicate_of' : ''}
   LEFT JOIN track_cache t ON t.id = r.track_id
   LEFT JOIN player_state s ON s.establishment_id = r.establishment_id`;
 
