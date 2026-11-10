@@ -133,6 +133,11 @@ Requiere Docker con Docker Compose.
 - **En Supabase** se pegan en orden (001 a 008 y luego 010) en el SQL Editor. La 010 activa las peticiones automáticas; sin ella, la emisora sigue como antes.
 - La **009** (`009_limpieza_opcional.sql`) borra tablas y columnas de la autenticación anterior. Es **opcional** y está pensada para **ejecutarla a mano solo tras confirmar** que no se usan. No se monta en ningún compose.
 
+**Datos de demostración** (`database/seeds/`, **solo para presentar el proyecto**, nunca como parte del despliegue):
+- `demo_admin.sql` crea 4 locales de ejemplo (restaurante, café, bar de salsa y discoteca) con algunas peticiones e historial para la cuenta `admin123@example.com`. Antes, esa cuenta debe existir en Supabase Auth y haber entrado una vez a la app. Es idempotente y los códigos públicos son fijos.
+- `demo_admin_cleanup.sql` borra esos locales y la fila de la cuenta en `users` (no toca `auth.users`).
+- Se ejecutan a mano en el SQL Editor, en ese orden: el seed antes de presentar y el cleanup al terminar. No se montan en ningún compose. Pasos completos en [DEMO.md](DEMO.md).
+
 ## Variables de entorno
 
 Al arrancar, `backend/src/config.js` valida todas las variables. Si falta alguna o tiene mal formato, el servidor no arranca y lista **todos** los problemas en español.
