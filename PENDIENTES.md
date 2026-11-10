@@ -127,3 +127,12 @@ El health responde porque Render conserva la instancia vieja cuando un despliegu
   - **No ejecutar la 009** como parte de esto: sigue siendo opcional y manual.
 - **Render (opcional):** `REQUEST_MAX_DEFERRAL` (3), `REQUEST_BALANCE_EVERY` (4), `REQUEST_MAX_PENDING_PER_CLIENT` (3) y `REQUEST_REPLAY_WAIT_MINUTES` (30). Con los valores por defecto no hace falta definirlas.
 - **Vercel:** nada que configurar.
+
+## 10. Cuenta de demostración (2026-11-10)
+
+- **Supabase → Authentication → Users:** crear `admin123@example.com` con **Auto Confirm User** (no recibe correos) y una contraseña de al menos 8 caracteres. La contraseña no se escribe en el repositorio.
+- **Entrar una vez a la app** con esa cuenta, para que el backend cree su fila en `users`.
+- **SQL (SQL Editor, a mano):** `database/seeds/demo_admin.sql`. Solo para la presentación; no es una migración. Requiere hasta la 010.
+- **Después de presentar:** `database/seeds/demo_admin_cleanup.sql` y borrar el usuario en Supabase Auth.
+- **Render y Vercel:** nada que configurar. Guía completa en [DEMO.md](DEMO.md).
+- **Probado solo en local:** Postgres desechable con todas las migraciones (también con la 009) y el Supabase simulado. No se ejecutó contra Supabase real.
